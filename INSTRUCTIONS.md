@@ -10,7 +10,7 @@ Run:
 bin/apply
 ```
 
-The installer is idempotent. It:
+`bin/apply` is idempotent. It:
 
 - symlinks skills into `~/.codex/skills` and `~/.claude/skills`
 - inserts or updates managed router blocks in `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`
@@ -19,6 +19,16 @@ The installer is idempotent. It:
 - refuses same-named non-symlinks or symlinks that point outside this checkout
 
 Keep this checkout somewhere permanent. Do not manually rewrite global Claude or Codex config. Edit files here, then rerun `bin/apply`.
+
+## Local Setup
+
+Run:
+
+```bash
+bin/init-local
+```
+
+This creates local runtime/config scaffolding only. It never overwrites existing config and never writes real secrets.
 
 ## Boundaries
 

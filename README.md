@@ -8,9 +8,10 @@ This is not a task state machine. It installs short router guidance plus portabl
 
 ```bash
 bin/apply
+bin/init-local
 ```
 
-The installer is idempotent. It:
+`bin/apply` installs skills and router guidance. It is idempotent. It:
 
 - symlinks skills into `~/.codex/skills` and `~/.claude/skills`
 - inserts or updates managed router blocks in `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`
@@ -19,6 +20,14 @@ The installer is idempotent. It:
 - refuses same-named non-symlinks or symlinks that point outside this checkout
 
 Keep this checkout somewhere permanent because installed skills symlink back to it. Do not manually rewrite global agent config. Edit this repository, then rerun `bin/apply`.
+
+`bin/init-local` creates local runtime/config scaffolding. It:
+
+- creates `~/.agent-workflow/projects/`
+- creates `~/.agent-workflow/NOTIFY.md` from `templates/NOTIFY.pushover.md` when missing
+- creates `~/.config/agent-workflow/pushover.env` with empty placeholders when missing
+- adds a guarded source line to `~/.zshrc`
+- never overwrites existing config or writes real secrets
 
 ## Runtime Files
 

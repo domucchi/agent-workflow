@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+workflow_home="${AGENT_WORKFLOW_HOME:-$HOME/.agent-workflow}"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}/agent-workflow"
+notify_template="$root/templates/NOTIFY.pushover.md"
+notify_file="$workflow_home/NOTIFY.md"
+env_file="$config_home/pushover.env"
+shell_profile="${SHELL_PROFILE:-$HOME/.zshrc}"
+source_line="[ -f \"$env_file\" ] && source \"$env_file\""
+
+mkdir -p "$workflow_home/projects" "$config_home"
+chmod 700 "$workflow_home" "$workflow_home/projects" "$config_home"
+
+if [ ! -f "$notify_file" ]; then
+  cp "$notify_template" "$notify_file"
+  chmod 600 "$notify_file"
+  printf 'Created %s\n' "$notify_file"
+else
+  printf 'Exists %s\n' "$notify_file"
+fi
+
+if [ ! -f "$env_file" ]; then
+  cat > "$env_file" <<'ENV'
+# Pushover credentials for agent-workflow notifications.
+# Fill these values locally. Do not commit this file.
+export PUSHOVER_APP_TOKEN=""
+export PUSHOVER_USER_KEY=""
+# Optional: target one registered Pushover device.
+# export PUSHOVER_DEVICE=""
+ENV
+  chmod 600 "$env_file"
+  printf 'Created %s\n' "$env_file"
+else
+  chmod 600 "$env_file"
+  printf 'Exists %s\n' "$env_file"
+fi
+
+if [ -f "$shell_profile" ]; then
+  if grep -qF "$source_line" "$shell_profile"; then
+    printf 'Shell profile already sources %s\n' "$env_file"
+  else
+    printf '\n%s\n' "$source_line" >> "$shell_profile"
+    printf 'Updated %s\n' "$shell_profile"
+  fi
+else
+  printf '%s\n' "$source_line" > "$shell_profile"
+  printf 'Created %s\n' "$shell_profile"
+fi
+
+printf '\nNext steps:\n'
+printf '1. Edit %s and fill PUSHOVER_APP_TOKEN/PUSHOVER_USER_KEY.\n' "$env_file"
+printf '2. Run: source %s\n' "$shell_profile"
+printf '3. Send a test notification using the command shape in %s.\n' "$notify_file"
