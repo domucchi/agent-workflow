@@ -9,7 +9,7 @@ Verify the behavior that changed. Do not treat typecheck alone as enough for UI 
 
 ## Read First
 
-Read repo instructions and `~/agent-workspace/<project>/PROJECT.md` if present. Use project-specific verify commands and local app URLs from project lore when available.
+Read repo instructions and `~/.agent-workflow/projects/<project-id>/PROJECT.md` if present. Treat project lore commands as hints. Confirm them against repo config and CI before trusting them.
 
 ## Command Checks
 
@@ -20,6 +20,8 @@ Run the narrowest meaningful checks first, then broader checks when risk or proj
 - lint/format checks
 - build
 - project full gate when required
+
+Before running a lore command, compare it with available repo truth such as `package.json` scripts, Makefile, task runner config, CI workflow, or project docs. If lore and repo config diverge, note it in `scratch.md` and choose the command that best reflects current repo reality.
 
 Record useful commands and results in `scratch.md` under `Verification notes`.
 

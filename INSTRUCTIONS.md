@@ -16,8 +16,9 @@ The installer is idempotent. It:
 - inserts or updates managed router blocks in `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`
 - preserves unrelated global config
 - creates timestamped backups before first editing a router file
+- refuses same-named non-symlinks or symlinks that point outside this checkout
 
-Do not manually rewrite global Claude or Codex config. Edit files here, then rerun `bin/apply`.
+Keep this checkout somewhere permanent. Do not manually rewrite global Claude or Codex config. Edit files here, then rerun `bin/apply`.
 
 ## Boundaries
 
@@ -26,13 +27,13 @@ This repository is the source of workflow affordances, not task state.
 Task artifacts live under:
 
 ```text
-~/agent-workspace/<project>/<task-id>/
+~/.agent-workflow/projects/<project-id>/tasks/<task-id>/
 ```
 
 Project lore lives at:
 
 ```text
-~/agent-workspace/<project>/PROJECT.md
+~/.agent-workflow/projects/<project-id>/PROJECT.md
 ```
 
 Do not add workflow state, phase commands, approval commands, or status files.

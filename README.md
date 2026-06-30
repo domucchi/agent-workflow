@@ -16,16 +16,24 @@ The installer is idempotent. It:
 - inserts or updates managed router blocks in `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`
 - preserves unrelated global config
 - creates timestamped backups before first editing a router file
+- refuses same-named non-symlinks or symlinks that point outside this checkout
 
-Do not manually rewrite global agent config. Edit this repository, then rerun `bin/apply`.
+Keep this checkout somewhere permanent because installed skills symlink back to it. Do not manually rewrite global agent config. Edit this repository, then rerun `bin/apply`.
 
 ## Runtime Files
 
 Task and project memory live outside code repositories:
 
 ```text
-~/agent-workspace/<project>/PROJECT.md
-~/agent-workspace/<project>/<task-id>/
+~/.agent-workflow/projects/<project-id>/PROJECT.md
+~/.agent-workflow/projects/<project-id>/tasks/<task-id>/
+~/.agent-workflow/projects/<project-id>/tasks/<task-id>/worktree/
+```
+
+Projects may expose that workspace through a local, ignored repo symlink:
+
+```text
+<repo>/.agent-workflow -> ~/.agent-workflow/projects/<project-id>
 ```
 
 `PROJECT.md` holds local project lore. Task folders hold non-derivable task meaning: context, decisions, rejected options, verification notes, review notes, and handoff notes.
@@ -40,6 +48,7 @@ Status is derived by probing git, filesystem, and forge state. Do not store stat
 - `verifying-changes`: run project checks and use Playwright MCP for frontend/user-facing UI changes
 - `independent-review`: request a fresh read-only peer review before draft MR/PR or human review
 - `ci-recovery`: inspect failing CI, make one obvious fix attempt, then report
+- `handoff`: overwrite the forward pointer for the next session
 
 ## Principles
 
@@ -48,6 +57,13 @@ Status is derived by probing git, filesystem, and forge state. Do not store stat
 - Load instructions on demand.
 - Keep project-specific quirks in `PROJECT.md`, not global skills.
 - Keep scripts limited to deterministic installation/scaffolding.
+
+## Optional Tools
+
+- Playwright MCP: used by `verifying-changes` for browser checks.
+- peer CLI MCP: used by `independent-review` for stronger different-tool review when risk justifies it.
+
+The skills degrade gracefully when optional tools are unavailable, but they should record the limitation.
 
 ## License
 

@@ -14,11 +14,69 @@ cleanup() {
 
 trap cleanup EXIT
 
-tmpfile() {
-  local file
-  file="$(mktemp)"
-  tmp_files+=("$file")
-  printf '%s\n' "$file"
+track_tmp() {
+  tmp_files[${#tmp_files[@]}]="$1"
+}
+
+canonical_existing_path() {
+  local path="$1"
+  local dir
+  local base
+
+  dir="$(dirname "$path")"
+  base="$(basename "$path")"
+
+  if [ -d "$dir" ]; then
+    (
+      cd "$dir"
+      printf '%s/%s\n' "$(pwd -P)" "$base"
+    )
+  else
+    printf '%s\n' "$path"
+  fi
+}
+
+symlink_target_path() {
+  local link="$1"
+  local target
+  local link_dir
+
+  target="$(readlink "$link")"
+  if [ "${target#/}" = "$target" ]; then
+    link_dir="$(cd "$(dirname "$link")" && pwd -P)"
+    target="$link_dir/$target"
+  fi
+
+  canonical_existing_path "$target"
+}
+
+preflight_skills() {
+  local target="$1"
+  mkdir -p "$target"
+
+  for skill_dir in "$root"/skills/*; do
+    [ -d "$skill_dir" ] || continue
+
+    local skill
+    local link
+    local expected
+    local actual
+
+    skill="$(basename "$skill_dir")"
+    link="$target/$skill"
+    expected="$(canonical_existing_path "$skill_dir")"
+
+    if [ -L "$link" ]; then
+      actual="$(symlink_target_path "$link")"
+      if [ "$actual" != "$expected" ]; then
+        printf 'Refusing to replace existing symlink pointing elsewhere: %s -> %s\n' "$link" "$(readlink "$link")" >&2
+        exit 1
+      fi
+    elif [ -e "$link" ]; then
+      printf 'Refusing to replace existing non-symlink: %s\n' "$link" >&2
+      exit 1
+    fi
+  done
 }
 
 install_skills() {
@@ -33,13 +91,7 @@ install_skills() {
     skill="$(basename "$skill_dir")"
     link="$target/$skill"
 
-    if [ -L "$link" ]; then
-      rm "$link"
-    elif [ -e "$link" ]; then
-      printf 'Refusing to replace existing non-symlink: %s\n' "$link" >&2
-      exit 1
-    fi
-
+    rm -f "$link"
     ln -s "$skill_dir" "$link"
   done
 }
@@ -67,8 +119,10 @@ update_router() {
     : > "$file"
   fi
 
-  block="$(tmpfile)"
-  next="$(tmpfile)"
+  block="$(mktemp)"
+  next="$(mktemp)"
+  track_tmp "$block"
+  track_tmp "$next"
   write_block "$fragment" "$block"
 
   if grep -qF "$start_marker" "$file"; then
@@ -108,8 +162,14 @@ update_router() {
   mv "$next" "$file"
 }
 
-install_skills "${CODEX_HOME:-$HOME/.codex}/skills"
-install_skills "${CLAUDE_HOME:-$HOME/.claude}/skills"
+codex_skills="${CODEX_HOME:-$HOME/.codex}/skills"
+claude_skills="${CLAUDE_HOME:-$HOME/.claude}/skills"
+
+preflight_skills "$codex_skills"
+preflight_skills "$claude_skills"
+
+install_skills "$codex_skills"
+install_skills "$claude_skills"
 
 update_router "${CODEX_HOME:-$HOME/.codex}/AGENTS.md" "$root/routers/codex.md"
 update_router "${CLAUDE_HOME:-$HOME/.claude}/CLAUDE.md" "$root/routers/claude.md"

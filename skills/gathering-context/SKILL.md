@@ -9,7 +9,7 @@ Gather enough context to act. Stop when the next decision is clear.
 
 ## Read First
 
-Read repo instructions and `~/agent-workspace/<project>/PROJECT.md` if present. Read existing task artifacts before rewriting anything.
+Read repo instructions and `~/.agent-workflow/projects/<project-id>/PROJECT.md` if present. Read existing task artifacts before rewriting anything.
 
 ## Sources
 
