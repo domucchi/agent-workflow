@@ -37,6 +37,27 @@ If the stronger reviewer is warranted but peer CLI MCP is unavailable, use the b
 
 If no independent reviewer is available, stop and ask the user. Do not mark review passed yourself.
 
+## Double Review
+
+Use both a fresh read-only subagent and peer CLI only when the extra review cost is justified:
+
+- security, auth, payments, permissions, migrations, or data-loss risk
+- large architectural changes
+- broad refactors across ownership boundaries
+- fragile frontend flows where visual or runtime behavior matters
+- previous reviewer found substantial issues
+- implementer is uncertain
+- task had repeated failed attempts
+
+Preferred order:
+
+1. Fresh read-only subagent for a quick local/codebase pass.
+2. Peer CLI/different-tool review for stronger independent judgment.
+
+Do not double review narrow mechanical changes.
+
+If reviews disagree, resolve concrete findings first. Ask the user when disagreement is product or architecture judgment.
+
 ## Handoff Prompt
 
 Give the reviewer enough raw material to judge the work:
