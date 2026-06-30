@@ -15,6 +15,10 @@ Pattern: `{type}/{task-id}`
 Default type: `feat`
 Allowed types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`, `perf`
 
+## Execution
+
+Default mode: `draft-mr`
+
 ## Verify
 
 Inner loop:

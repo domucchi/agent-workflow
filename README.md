@@ -45,6 +45,7 @@ Status is derived by probing git, filesystem, and forge state. Do not store stat
 - `task-setup`: start a task workspace, worktree, ignored symlink, or task folder
 - `gathering-context`: inspect ticket/code/docs/MRs and write or refresh `context.md`
 - `writing-specs`: preserve approach, decisions, rejected options, scope, risks, and gates before risky work
+- `execution-mode`: choose supervised, draft-MR, implementation-only, or review-only execution
 - `verifying-changes`: run project checks and use Playwright MCP for frontend/user-facing UI changes
 - `independent-review`: request a fresh read-only peer review before draft MR/PR or human review
 - `ci-recovery`: inspect failing CI, make one obvious fix attempt, then report
@@ -63,7 +64,7 @@ Status is derived by probing git, filesystem, and forge state. Do not store stat
 
 - Playwright MCP: used by `verifying-changes` for browser checks.
 - peer CLI MCP: used by `independent-review` for stronger different-tool review when risk justifies it.
-- Pushover: preferred notification provider when configured in `~/.agent-workflow/NOTIFY.md`.
+- Pushover: starter config template at `templates/NOTIFY.pushover.md`; copy it to `~/.agent-workflow/NOTIFY.md`.
 
 The skills degrade gracefully when optional tools are unavailable, but they should record the limitation.
 

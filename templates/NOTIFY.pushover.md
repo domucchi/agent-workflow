@@ -1,4 +1,4 @@
-# Notify
+# Notify: Pushover
 
 Provider: pushover
 
@@ -19,10 +19,16 @@ Use only for stop conditions:
 
 Message policy:
 
-- short, low-sensitivity message only
+- attention-worthy but low-detail
 - include repo/project id, task id, reason, and safe link if available
 - no secrets, logs, diffs, code, customer data, or confidential context
 - omit links if company policy treats external notification URLs as sensitive
+
+Priority:
+
+- `0` for ready-for-review notifications
+- `1` for blocked / human decision needed
+- never use `2` unless explicitly configured with retry/expire handling
 
 Pushover command shape:
 
@@ -41,3 +47,5 @@ Optional safe URL fields:
 --data-urlencode "url=$AGENT_NOTIFY_URL"
 --data-urlencode "url_title=${AGENT_NOTIFY_URL_TITLE:-Open task}"
 ```
+
+Check the API response. A successful Pushover response has `status: 1`.
