@@ -8,14 +8,7 @@ Credentials are environment variables, not file contents:
 - `PUSHOVER_USER_KEY`
 - optional `PUSHOVER_DEVICE`
 
-Use only for stop conditions:
-
-- human decision needed
-- draft MR/PR ready
-- CI failed after one recovery attempt
-- independent review needs judgment
-- spec appears wrong or incomplete
-- agent is blocked
+Use only for human stop conditions. `execution-mode` owns the canonical stop-condition list for autonomous runs.
 
 Message policy:
 

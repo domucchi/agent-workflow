@@ -27,17 +27,15 @@ osascript -e 'display notification "Agent needs input" with title "Agent Workflo
 
 If that is unavailable, use the session message only.
 
-## Stop Conditions
+## When To Notify
 
-Notify when:
+Notify when another skill or the current task identifies a human stop condition. `execution-mode` owns the canonical stop-condition list for autonomous runs.
 
-- draft MR/PR is ready for human review
-- product, architecture, security, auth, permissions, payments, migration, or data-loss judgment is needed
-- independent review finding is not an obvious fix
-- CI failed and no obvious fix exists
-- the one allowed CI recovery attempt was already used
-- the spec appears wrong or incomplete during execution
-- the agent is blocked and cannot choose the next action safely
+Common examples:
+
+- draft MR/PR is ready
+- human judgment is needed
+- agent is blocked
 
 Do not notify for routine step completion.
 
