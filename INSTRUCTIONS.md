@@ -36,4 +36,10 @@ Project lore lives at:
 ~/.agent-workflow/projects/<project-id>/PROJECT.md
 ```
 
+Notification preferences live at:
+
+```text
+~/.agent-workflow/NOTIFY.md
+```
+
 Do not add workflow state, phase commands, approval commands, or status files.

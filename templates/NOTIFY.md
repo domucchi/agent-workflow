@@ -1,0 +1,43 @@
+# Notify
+
+Provider: pushover
+
+Credentials are environment variables, not file contents:
+
+- `PUSHOVER_APP_TOKEN`
+- `PUSHOVER_USER_KEY`
+- optional `PUSHOVER_DEVICE`
+
+Use only for stop conditions:
+
+- human decision needed
+- draft MR/PR ready
+- CI failed after one recovery attempt
+- independent review needs judgment
+- spec appears wrong or incomplete
+- agent is blocked
+
+Message policy:
+
+- short, low-sensitivity message only
+- include repo/project id, task id, reason, and safe link if available
+- no secrets, logs, diffs, code, customer data, or confidential context
+- omit links if company policy treats external notification URLs as sensitive
+
+Pushover command shape:
+
+```bash
+curl -fsS https://api.pushover.net/1/messages.json \
+  --data-urlencode "token=$PUSHOVER_APP_TOKEN" \
+  --data-urlencode "user=$PUSHOVER_USER_KEY" \
+  --data-urlencode "title=${AGENT_NOTIFY_TITLE:-Agent Workflow}" \
+  --data-urlencode "message=$AGENT_NOTIFY_MESSAGE" \
+  --data-urlencode "priority=${AGENT_NOTIFY_PRIORITY:-0}"
+```
+
+Optional safe URL fields:
+
+```bash
+--data-urlencode "url=$AGENT_NOTIFY_URL"
+--data-urlencode "url_title=${AGENT_NOTIFY_URL_TITLE:-Open task}"
+```

@@ -27,6 +27,8 @@ Browser/UI verification:
 
 Preferred peer reviewer:
 
+Notify:
+
 Forge:
 
 MCP/project-specific tools:

@@ -49,6 +49,7 @@ Status is derived by probing git, filesystem, and forge state. Do not store stat
 - `independent-review`: request a fresh read-only peer review before draft MR/PR or human review
 - `ci-recovery`: inspect failing CI, make one obvious fix attempt, then report
 - `handoff`: overwrite the forward pointer for the next session
+- `notify-human`: send a low-detail notification when human attention is needed
 
 ## Principles
 
@@ -62,6 +63,7 @@ Status is derived by probing git, filesystem, and forge state. Do not store stat
 
 - Playwright MCP: used by `verifying-changes` for browser checks.
 - peer CLI MCP: used by `independent-review` for stronger different-tool review when risk justifies it.
+- Pushover: preferred notification provider when configured in `~/.agent-workflow/NOTIFY.md`.
 
 The skills degrade gracefully when optional tools are unavailable, but they should record the limitation.
 
