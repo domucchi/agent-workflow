@@ -11,16 +11,31 @@ Independent review means a fresh reviewer. Do not satisfy it by reviewing your o
 
 Read repo instructions, project lore, task `context.md`, task `spec.md` if present, verification notes, and current diff.
 
-## Preferred Reviewers
+## Reviewer Choice
 
-Prefer a different tool/vendor when available:
+Match reviewer strength to risk.
+
+Use a fresh read-only subagent for small or medium changes when the diff is narrow, behavior is clear, and the touched area is low risk.
+
+Prefer a different tool/vendor through peer CLI for:
+
+- large diffs
+- architecture changes
+- auth, payments, permissions, migrations, security, or data-loss risk
+- broad refactors
+- hard-to-test behavior
+- changes where the implementer is uncertain
+
+Peer CLI paths:
 
 - From Codex, call `peer_cli.call_claude`.
 - From Claude Code, call `peer_cli.call_codex`.
 - Use the task worktree as `cwd`.
 - Use read-only mode: `sandbox: "read-only"` for Codex, `tool_mode: "read-only"` for Claude.
 
-If peer CLI MCP is unavailable, use another fresh read-only agent/subagent when tool policy allows it. If no independent reviewer is available, stop and ask the user. Do not mark review passed yourself.
+If the stronger reviewer is warranted but peer CLI MCP is unavailable, use the best fresh read-only reviewer available and state the limitation in the review notes.
+
+If no independent reviewer is available, stop and ask the user. Do not mark review passed yourself.
 
 ## Handoff Prompt
 
