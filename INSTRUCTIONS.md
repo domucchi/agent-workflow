@@ -30,6 +30,8 @@ bin/init-local
 
 This creates local runtime/config scaffolding only. It never overwrites existing config and never writes real secrets.
 
+Pushover credentials stay in `~/.config/agent-workflow/pushover.env` and are sourced only by the notification command.
+
 ## Boundaries
 
 This repository is the source of workflow affordances, not task state.

@@ -84,7 +84,7 @@ git rev-parse --git-common-dir
 
 Then edit that common dir's `info/exclude`. Do not edit committed `.gitignore` for local workflow files.
 
-Do not create per-task symlinks inside the repo. Do not follow or copy `.agent-workflow` into archives, uploads, patches, prompts, or commits unless the user explicitly asks for task artifacts.
+Do not create per-task symlinks inside the repo. Do not follow or copy `.agent-workflow` into archives, uploads, patches, prompts, or commits unless the user explicitly asks for task artifacts. The worktree is a full checkout; do not recursively search through `.agent-workflow` from the repo root when gathering context.
 
 If `.agent-workflow` already exists and is not the expected symlink, stop and ask.
 

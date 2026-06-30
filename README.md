@@ -26,8 +26,10 @@ Keep this checkout somewhere permanent because installed skills symlink back to 
 - creates `~/.agent-workflow/projects/`
 - creates `~/.agent-workflow/NOTIFY.md` from `templates/NOTIFY.pushover.md` when missing
 - creates `~/.config/agent-workflow/pushover.env` with empty placeholders when missing
-- adds a guarded source line to `~/.zshrc`
+- creates `~/.agent-workflow/bin/agent-notify` as a symlink to this checkout
 - never overwrites existing config or writes real secrets
+
+Pushover credentials are sourced only by `agent-notify` while sending a notification. Do not source `pushover.env` from shell startup.
 
 ## Runtime Files
 

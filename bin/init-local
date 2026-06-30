@@ -7,11 +7,18 @@ config_home="${XDG_CONFIG_HOME:-$HOME/.config}/agent-workflow"
 notify_template="$root/templates/NOTIFY.pushover.md"
 notify_file="$workflow_home/NOTIFY.md"
 env_file="$config_home/pushover.env"
-shell_profile="${SHELL_PROFILE:-$HOME/.zshrc}"
-source_line="[ -f \"$env_file\" ] && source \"$env_file\""
+notify_bin="$workflow_home/bin/agent-notify"
+notify_src="$root/bin/agent-notify"
 
-mkdir -p "$workflow_home/projects" "$config_home"
-chmod 700 "$workflow_home" "$workflow_home/projects" "$config_home"
+mkdir -p "$workflow_home/projects" "$workflow_home/bin" "$config_home"
+chmod 700 "$workflow_home" "$workflow_home/projects" "$workflow_home/bin" "$config_home"
+
+if [ ! -x "$notify_src" ]; then
+  chmod +x "$notify_src" 2>/dev/null || {
+    printf 'Refusing to install non-executable %s\n' "$notify_src" >&2
+    exit 1
+  }
+fi
 
 if [ ! -f "$notify_file" ]; then
   cp "$notify_template" "$notify_file"
@@ -37,19 +44,23 @@ else
   printf 'Exists %s\n' "$env_file"
 fi
 
-if [ -f "$shell_profile" ]; then
-  if grep -qF "$source_line" "$shell_profile"; then
-    printf 'Shell profile already sources %s\n' "$env_file"
+if [ -L "$notify_bin" ]; then
+  current_notify_src="$(readlink "$notify_bin")"
+  if [ "$current_notify_src" = "$notify_src" ]; then
+    printf 'Exists %s -> %s\n' "$notify_bin" "$current_notify_src"
   else
-    printf '\n%s\n' "$source_line" >> "$shell_profile"
-    printf 'Updated %s\n' "$shell_profile"
+    ln -sfn "$notify_src" "$notify_bin"
+    printf 'Updated %s -> %s\n' "$notify_bin" "$notify_src"
   fi
+elif [ -e "$notify_bin" ]; then
+  printf 'Refusing to overwrite non-symlink %s\n' "$notify_bin" >&2
+  exit 1
 else
-  printf '%s\n' "$source_line" > "$shell_profile"
-  printf 'Created %s\n' "$shell_profile"
+  ln -s "$notify_src" "$notify_bin"
+  printf 'Created %s -> %s\n' "$notify_bin" "$notify_src"
 fi
 
 printf '\nNext steps:\n'
 printf '1. Edit %s and fill PUSHOVER_APP_TOKEN/PUSHOVER_USER_KEY.\n' "$env_file"
-printf '2. Run: source %s\n' "$shell_profile"
-printf '3. Send a test notification using the command shape in %s.\n' "$notify_file"
+printf '2. Send a test notification: %s "Agent Workflow test"\n' "$notify_bin"
+printf '3. Adjust notification preferences in %s.\n' "$notify_file"

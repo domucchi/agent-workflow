@@ -2,11 +2,13 @@
 
 Provider: pushover
 
-Credentials are environment variables, not file contents:
+Credentials live in `~/.config/agent-workflow/pushover.env`:
 
 - `PUSHOVER_APP_TOKEN`
 - `PUSHOVER_USER_KEY`
 - optional `PUSHOVER_DEVICE`
+
+Do not source that file from shell startup. Use the wrapper; it sources credentials only for the send process.
 
 Use only for human stop conditions. `execution-mode` owns the canonical stop-condition list for autonomous runs.
 
@@ -21,24 +23,22 @@ Priority:
 
 - `0` for ready-for-review notifications
 - `1` for blocked / human decision needed
-- never use `2` unless explicitly configured with retry/expire handling
+- the bundled wrapper does not support priority `2`
 
 Pushover command shape:
 
 ```bash
-curl -fsS https://api.pushover.net/1/messages.json \
-  --data-urlencode "token=$PUSHOVER_APP_TOKEN" \
-  --data-urlencode "user=$PUSHOVER_USER_KEY" \
-  --data-urlencode "title=${AGENT_NOTIFY_TITLE:-Agent Workflow}" \
-  --data-urlencode "message=$AGENT_NOTIFY_MESSAGE" \
-  --data-urlencode "priority=${AGENT_NOTIFY_PRIORITY:-0}"
+AGENT_NOTIFY_TITLE="${AGENT_NOTIFY_TITLE:-Agent Workflow}" \
+AGENT_NOTIFY_MESSAGE="<safe one-line message>" \
+AGENT_NOTIFY_PRIORITY="${AGENT_NOTIFY_PRIORITY:-0}" \
+~/.agent-workflow/bin/agent-notify
 ```
 
 Optional safe URL fields:
 
 ```bash
---data-urlencode "url=$AGENT_NOTIFY_URL"
---data-urlencode "url_title=${AGENT_NOTIFY_URL_TITLE:-Open task}"
+AGENT_NOTIFY_URL="<safe-url>"
+AGENT_NOTIFY_URL_TITLE="${AGENT_NOTIFY_URL_TITLE:-Open task}"
 ```
 
 Check the API response. A successful Pushover response has `status: 1`.

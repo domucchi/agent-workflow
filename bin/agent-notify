@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}/agent-workflow"
+env_file="${AGENT_NOTIFY_ENV_FILE:-$config_home/pushover.env}"
+
+if [ ! -r "$env_file" ]; then
+  printf 'agent-notify: configure credentials in %s\n' "$env_file" >&2
+  exit 78
+fi
+
+# shellcheck source=/dev/null
+source "$env_file"
+
+message="${AGENT_NOTIFY_MESSAGE:-${1:-}}"
+title="${AGENT_NOTIFY_TITLE:-Agent Workflow}"
+priority="${AGENT_NOTIFY_PRIORITY:-0}"
+url="${AGENT_NOTIFY_URL:-}"
+url_title="${AGENT_NOTIFY_URL_TITLE:-Open task}"
+device="${PUSHOVER_DEVICE:-}"
+
+if [ -z "$message" ]; then
+  printf 'agent-notify: AGENT_NOTIFY_MESSAGE or first argument is required\n' >&2
+  exit 64
+fi
+
+if [ -z "${PUSHOVER_APP_TOKEN:-}" ] || [ -z "${PUSHOVER_USER_KEY:-}" ]; then
+  printf 'agent-notify: fill PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY in %s\n' "$env_file" >&2
+  exit 78
+fi
+
+case "$priority" in
+  -2|-1|0|1) ;;
+  2)
+    printf 'agent-notify: priority 2 requires retry/expire handling; refusing\n' >&2
+    exit 64
+    ;;
+  *)
+    printf 'agent-notify: invalid priority %s\n' "$priority" >&2
+    exit 64
+    ;;
+esac
+
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-notify.XXXXXX")"
+cleanup() {
+  rm -rf "$tmp_dir"
+}
+trap cleanup EXIT
+chmod 700 "$tmp_dir"
+
+curl_args=(
+  -sS
+  https://api.pushover.net/1/messages.json
+)
+
+add_field() {
+  name="$1"
+  value="$2"
+  file="$tmp_dir/$name"
+  printf '%s' "$value" > "$file"
+  chmod 600 "$file"
+  curl_args+=(--data-urlencode "$name@$file")
+}
+
+add_field token "$PUSHOVER_APP_TOKEN"
+add_field user "$PUSHOVER_USER_KEY"
+add_field title "$title"
+add_field message "$message"
+add_field priority "$priority"
+
+if [ -n "$device" ]; then
+  add_field device "$device"
+fi
+
+if [ -n "$url" ]; then
+  add_field url "$url"
+  add_field url_title "$url_title"
+fi
+
+response_file="$tmp_dir/response"
+http_code="$(curl -w '%{http_code}' -o "$response_file" "${curl_args[@]}")" || {
+  printf 'agent-notify: Pushover request failed\n' >&2
+  exit 1
+}
+response="$(cat "$response_file")"
+request="$(sed -n 's/.*"request"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<< "$response")"
+
+case "$http_code" in
+  2*) ;;
+  *)
+    errors="$(sed -n 's/.*"errors"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p' <<< "$response" | tr -d '"')"
+    if [ -n "$errors" ]; then
+      printf 'agent-notify: Pushover request failed http_status=%s error=%s\n' "$http_code" "$errors" >&2
+    elif [ -n "$request" ]; then
+      printf 'agent-notify: Pushover request failed http_status=%s request=%s\n' "$http_code" "$request" >&2
+    else
+      printf 'agent-notify: Pushover request failed http_status=%s\n' "$http_code" >&2
+    fi
+    exit 1
+    ;;
+esac
+
+if [[ "$response" =~ \"status\"[[:space:]]*:[[:space:]]*1([^0-9]|$) ]]; then
+  if [ -n "$request" ]; then
+    printf 'agent-notify: sent request=%s\n' "$request"
+  else
+    printf 'agent-notify: sent\n'
+  fi
+else
+  printf 'agent-notify: Pushover rejected notification\n' >&2
+  exit 1
+fi

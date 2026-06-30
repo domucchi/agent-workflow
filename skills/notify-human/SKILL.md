@@ -19,6 +19,8 @@ Set these environment variables for the configured command when useful:
 - `AGENT_NOTIFY_URL`
 - `AGENT_NOTIFY_URL_TITLE`
 
+Prefer configured commands that source provider credentials internally. Do not export provider tokens into the agent session unless the local notification config explicitly requires it.
+
 If no notification config exists, fall back to a local macOS notification when available:
 
 ```bash

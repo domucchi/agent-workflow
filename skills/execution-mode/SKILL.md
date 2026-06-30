@@ -13,12 +13,12 @@ Store the chosen mode in `spec.md` when a spec exists. For trivial work without 
 
 Use one of:
 
-- `draft-mr`: default after human agrees to a non-trivial spec. Proceed through implementation, verification, independent review, clear fixes, draft MR/PR, and one CI recovery attempt.
+- `draft-mr`: proceed through implementation, verification, independent review, clear fixes, draft MR/PR, and one CI recovery attempt.
 - `supervised`: check in before major moves. Use when user wants to collaborate step by step.
 - `implementation-only`: implement and verify locally, then stop before independent review or MR/PR.
 - `review-only`: inspect existing work and report findings; do not implement unless asked.
 
-If the user does not choose a mode and has approved a clear spec, default to `draft-mr`. If risk is high or approval is unclear, use `supervised`.
+Choose mode in this order: explicit user instruction or spec decision, then `PROJECT.md` default, then `supervised`. If risk is high or approval is unclear, use `supervised` even when the project default is more autonomous.
 
 ## Spec Text
 
