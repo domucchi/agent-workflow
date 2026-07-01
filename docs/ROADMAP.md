@@ -14,7 +14,7 @@ Evolving `agent-workflow` from a stateless skill library into a small control pl
 
 Build in dependency order. Each phase is usable on its own — **no hard gate between them**; later phases just shell out to earlier CLIs.
 
-- [ ] **Phase 0 — State contract** — #1
+- [x] **Phase 0 — State contract** — #1
   `~/.agent-workflow` bus, `docs/STATE.md`, and the `PROJECT.md` dev-stack block (incl. the preview profile). Foundation every later phase reads/writes.
 - [ ] **Phase 1 — `agent-lease`** — #2
   Single dev-stack lease with reap-by-liveness and a jittered-backoff `claim --wait` (no queue). New `managing-resources` skill. *Depends on Phase 0.*
