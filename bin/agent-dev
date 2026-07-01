@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="${0##*/}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/agent-runtime-lib
+source "$script_dir/agent-runtime-lib"
+
+usage() {
+  cat >&2 <<USAGE
+Usage:
+  $command_name [--project-id <id>] [--worktree <path>] up <task-id>
+  $command_name [--project-id <id>] [--worktree <path>] down <task-id>
+  $command_name [--project-id <id>] [--worktree <path>] status <task-id>
+  $command_name [--project-id <id>] logs [--follow] [--lines <n>] <task-id>
+USAGE
+}
+
+run_dir() {
+  printf '%s/run\n' "$(task_home)"
+}
+
+pid_file() {
+  printf '%s/dev.pid\n' "$(run_dir)"
+}
+
+log_file() {
+  printf '%s/dev.log\n' "$(run_dir)"
+}
+
+dev_ports() {
+  ports_for_label "Canonical ports"
+}
+
+lease_resource() {
+  require_label "Lease resource"
+}
+
+supervise_dev() {
+  resolved_project_id="$AGENT_DEV_PROJECT_ID"
+  task_id="$AGENT_DEV_TASK_ID"
+  worktree="$AGENT_DEV_WORKTREE"
+
+  local run pid_path resource ports up_command child=""
+  run="$(run_dir)"
+  pid_path="$(pid_file)"
+  resource="$(lease_resource)"
+  ports="$(dev_ports)"
+  up_command="$(require_label "Up command")"
+
+  cleanup() {
+    if [ -n "$child" ]; then
+      kill_tree_wait "$child"
+    fi
+    "$agent_bin_dir/agent-lease" release "$resource" --project-id "$resolved_project_id" --task-id "$task_id" --worktree "$worktree" --pid "$$" >/dev/null 2>&1 || true
+    rm -f "$pid_path"
+    rmdir "$run" 2>/dev/null || true
+  }
+  terminate() {
+    exit 143
+  }
+  trap cleanup EXIT
+  trap terminate TERM INT
+
+  printf '%s\n' "$$" > "$pid_path"
+
+  lease_args=(claim "$resource" --wait --project-id "$resolved_project_id" --task-id "$task_id" --worktree "$worktree" --pid "$$")
+  if [ -n "$ports" ]; then
+    lease_args+=(--ports "$ports")
+  fi
+  "$agent_bin_dir/agent-lease" "${lease_args[@]}"
+
+  if [ "$(label_value "Env seed rule" "$(project_file)")" != "none" ]; then
+    seed_env_if_missing "$worktree"
+  fi
+
+  (
+    cd "$worktree"
+    exec bash -lc "$up_command"
+  ) &
+  child="$!"
+  wait "$child"
+}
+
+cmd_up() {
+  local worktree_path run log pid
+  worktree_path="$(task_worktree)"
+  [ -d "$worktree_path" ] || die "missing worktree: $worktree_path"
+
+  run="$(run_dir)"
+  log="$(log_file)"
+  mkdir -p "$run"
+  if [ -f "$(pid_file)" ]; then
+    pid="$(cat "$(pid_file)")"
+    if pid_alive "$pid"; then
+      printf 'running pid=%s\n' "$pid"
+      return 0
+    fi
+  fi
+
+  : > "$log"
+  AGENT_DEV_PROJECT_ID="$resolved_project_id" \
+  AGENT_DEV_TASK_ID="$task_id" \
+  AGENT_DEV_WORKTREE="$worktree_path" \
+    "$0" _supervise >> "$log" 2>&1 &
+  pid="$!"
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [ -f "$(pid_file)" ] && break
+    pid_alive "$pid" || die "dev supervisor exited; see $log"
+    sleep 0.1
+  done
+  if [ ! -f "$(pid_file)" ]; then
+    kill_tree_wait "$pid"
+    die "dev supervisor did not write pid file; see $log"
+  fi
+  printf 'started pid=%s log=%s\n' "$pid" "$log"
+}
+
+cmd_down() {
+  local pid="" resource worktree_path down_command release_args
+  worktree_path="$(task_worktree)"
+  resource="$(lease_resource)"
+  if [ -f "$(pid_file)" ]; then
+    pid="$(cat "$(pid_file)")"
+    kill_tree_wait "$pid"
+  fi
+  down_command="$(label_value "Down command" "$(project_file)")"
+  if [ -n "$down_command" ]; then
+    (
+      cd "$worktree_path"
+      bash -lc "$down_command"
+    )
+  fi
+  release_args=(release "$resource" --project-id "$resolved_project_id" --task-id "$task_id" --worktree "$worktree_path")
+  if [ -n "$pid" ]; then
+    release_args+=(--pid "$pid")
+  fi
+  "$agent_bin_dir/agent-lease" "${release_args[@]}" >/dev/null 2>&1 || true
+  rm -f "$(pid_file)"
+  rmdir "$(run_dir)" 2>/dev/null || true
+  printf 'stopped %s\n' "$task_id"
+}
+
+cmd_status() {
+  local pid ports state="stopped" ports_state="none"
+  ports="$(dev_ports)"
+  if [ -f "$(pid_file)" ]; then
+    pid="$(cat "$(pid_file)")"
+    if pid_alive "$pid"; then
+      state="running"
+      if [ -n "$ports" ]; then
+        if all_ports_bound "$ports"; then
+          ports_state="bound"
+        else
+          ports_state="unbound"
+        fi
+      fi
+    fi
+  fi
+  printf 'task=%s state=%s ports=%s\n' "$task_id" "$state" "$ports_state"
+  [ "$state" = "running" ] && { [ "$ports_state" != "unbound" ] || return 1; }
+}
+
+cmd_logs() {
+  local lines="$1"
+  local follow="$2"
+  [ -f "$(log_file)" ] || die "missing log: $(log_file)"
+  if [ "$follow" -eq 1 ]; then
+    tail -n "$lines" -f "$(log_file)"
+  else
+    tail -n "$lines" "$(log_file)"
+  fi
+}
+
+if [ "${1:-}" = "_supervise" ]; then
+  supervise_dev
+  exit $?
+fi
+
+project_id=""
+worktree=""
+follow=0
+lines=100
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --project-id) shift; [ "$#" -gt 0 ] || die "--project-id requires a value"; project_id="$1" ;;
+    --worktree) shift; [ "$#" -gt 0 ] || die "--worktree requires a value"; worktree="$1" ;;
+    --follow|-f) follow=1 ;;
+    --lines|-n) shift; [ "$#" -gt 0 ] || die "--lines requires a value"; lines="$1" ;;
+    -h|--help) usage; exit 0 ;;
+    up|down|status|logs) subcommand="$1"; shift; break ;;
+    *) die "unknown option or command: $1" ;;
+  esac
+  shift
+done
+
+[ -n "${subcommand:-}" ] || { usage; exit 64; }
+if [ "$subcommand" = "logs" ]; then
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --follow|-f) follow=1 ;;
+      --lines|-n) shift; [ "$#" -gt 0 ] || die "--lines requires a value"; lines="$1" ;;
+      *) break ;;
+    esac
+    shift
+  done
+fi
+
+[ "$#" -eq 1 ] || die "$subcommand requires <task-id>"
+task_id="$1"
+safe_segment "$task_id" || die "invalid task id: $task_id"
+resolved_project_id="$(resolve_project_id)"
+safe_segment "$resolved_project_id" || die "invalid project id: $resolved_project_id"
+
+case "$subcommand" in
+  up) cmd_up ;;
+  down) cmd_down ;;
+  status) cmd_status ;;
+  logs) cmd_logs "$lines" "$follow" ;;
+esac

@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="${0##*/}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/agent-runtime-lib
+source "$script_dir/agent-runtime-lib"
+
+usage() {
+  cat >&2 <<USAGE
+Usage:
+  $command_name [--project-id <id>] [--dry-run] [--execute] [task-id]
+USAGE
+}
+
+is_base_branch() {
+  case "$1" in
+    main|master|develop|dev|staging|production|release|trunk) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+task_has_notes() {
+  local home="$1"
+  find "$home" -mindepth 1 -maxdepth 1 \
+    ! -name worktree \
+    ! -name run \
+    ! -name DISPOSABLE |
+    grep -q .
+}
+
+task_has_live_pid() {
+  local home="$1"
+  local pid_file="$home/run/dev.pid"
+  [ -f "$pid_file" ] && pid_alive "$(cat "$pid_file")"
+}
+
+task_has_lease() {
+  local task="$1"
+  local lease_dir
+  lease_dir="$(project_home)/leases"
+  [ -d "$lease_dir" ] || return 1
+  grep -l "\"task_id\"[[:space:]]*:[[:space:]]*\"$task\"" "$lease_dir"/*.json >/dev/null 2>&1
+}
+
+branch_has_closed_pr() {
+  local branch="$1"
+  command -v gh >/dev/null 2>&1 || return 1
+  gh pr list --head "$branch" --state all --json state,mergedAt --limit 1 2>/dev/null |
+    grep -Eq '"state":"(CLOSED|MERGED)"|"mergedAt":"[^"]+"'
+}
+
+branch_pushed_or_merged() {
+  local wt="$1"
+  local ahead
+  if git -C "$wt" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+    ahead="$(git -C "$wt" rev-list --count '@{u}..HEAD')"
+    [ "$ahead" -eq 0 ] && return 0
+  fi
+  git -C "$wt" merge-base --is-ancestor HEAD origin/main 2>/dev/null
+}
+
+evaluate_task() {
+  local task="$1"
+  local home wt branch reasons=()
+  home="$(project_home)/tasks/$task"
+  wt="$home/worktree"
+
+  [ -d "$home" ] || { printf 'refused %s: missing task dir\n' "$task"; return 1; }
+  [ -d "$wt/.git" ] || [ -f "$wt/.git" ] || reasons+=("missing expected worktree")
+  if [ -d "$wt" ]; then
+    branch="$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || printf unknown)"
+    is_base_branch "$branch" && reasons+=("base/integration branch")
+    [ -z "$(git -C "$wt" status --porcelain 2>/dev/null)" ] || reasons+=("dirty worktree")
+    branch_pushed_or_merged "$wt" || reasons+=("unpushed commits")
+    if [ ! -f "$home/DISPOSABLE" ] && ! branch_has_closed_pr "$branch"; then
+      reasons+=("no closed/merged PR or DISPOSABLE marker")
+    fi
+  fi
+  task_has_live_pid "$home" && reasons+=("running managed process")
+  task_has_lease "$task" && reasons+=("active lease")
+  task_has_notes "$home" && reasons+=("task notes/metadata present")
+
+  if [ "${#reasons[@]}" -gt 0 ]; then
+    printf 'refused %s: ' "$task"
+    local first=1 reason
+    for reason in "${reasons[@]}"; do
+      if [ "$first" -eq 1 ]; then first=0; else printf '; '; fi
+      printf '%s' "$reason"
+    done
+    printf '\n'
+    return 1
+  fi
+
+  printf 'eligible %s %s\n' "$task" "$wt"
+  return 0
+}
+
+execute_cleanup() {
+  local task="$1"
+  local home wt archive git_common_dir
+  home="$(project_home)/tasks/$task"
+  wt="$home/worktree"
+  archive="$(project_home)/archive/$task-$(date -u '+%Y%m%d%H%M%S')"
+  git_common_dir="$(git -C "$wt" rev-parse --git-common-dir)"
+  if [ "${git_common_dir#/}" = "$git_common_dir" ]; then
+    git_common_dir="$(cd "$wt/$git_common_dir" && pwd -P)"
+  fi
+  git --git-dir="$git_common_dir" worktree remove --force "$wt"
+  mkdir -p "$(dirname "$archive")"
+  mv "$home" "$archive"
+  printf 'archived %s %s\n' "$task" "$archive"
+}
+
+project_id=""
+dry_run=1
+task_filter=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --project-id) shift; [ "$#" -gt 0 ] || die "--project-id requires a value"; project_id="$1" ;;
+    --dry-run) dry_run=1 ;;
+    --execute) dry_run=0 ;;
+    -h|--help) usage; exit 0 ;;
+    -* ) die "unknown option: $1" ;;
+    *) [ -z "$task_filter" ] || die "unexpected argument: $1"; task_filter="$1" ;;
+  esac
+  shift
+done
+
+resolved_project_id="$(resolve_project_id)"
+safe_segment "$resolved_project_id" || die "invalid project id: $resolved_project_id"
+
+tasks=()
+if [ -n "$task_filter" ]; then
+  safe_segment "$task_filter" || die "invalid task id: $task_filter"
+  tasks+=("$task_filter")
+else
+  tasks_dir="$(project_home)/tasks"
+  [ -d "$tasks_dir" ] || exit 0
+  for task_path in "$tasks_dir"/*; do
+    [ -d "$task_path" ] || continue
+    tasks+=("$(basename "$task_path")")
+  done
+fi
+
+exit_code=0
+for task_id in ${tasks[@]+"${tasks[@]}"}; do
+  if evaluate_task "$task_id"; then
+    if [ "$dry_run" -eq 0 ]; then
+      execute_cleanup "$task_id"
+    fi
+  else
+    exit_code=1
+  fi
+done
+exit "$exit_code"

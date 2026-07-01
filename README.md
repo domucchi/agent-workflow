@@ -27,7 +27,7 @@ Keep this checkout somewhere permanent because installed skills symlink back to 
 - creates `~/.agent-workflow/projects/`
 - creates `~/.agent-workflow/NOTIFY.md` from `templates/NOTIFY.pushover.md` when missing
 - creates `~/.config/agent-workflow/pushover.env` with empty placeholders when missing
-- creates `~/.agent-workflow/bin/agent-notify` and `~/.agent-workflow/bin/agent-lease` as symlinks to this checkout
+- creates `~/.agent-workflow/bin/agent-notify`, `agent-lease`, `agent-dev`, `agent-preview`, and `agent-cleanup` as symlinks to this checkout
 - never overwrites existing config or writes real secrets
 
 Pushover credentials are sourced only by `agent-notify` while sending a notification. Do not source `pushover.env` from shell startup.
@@ -44,6 +44,11 @@ bin/agent-lease reap [resource]
 Lease files live under `~/.agent-workflow/projects/<project-id>/leases/`.
 Liveness is derived from `kill -0` and `lsof`; unbound ports become reapable after
 the configured startup grace. No queue or waiter state is stored.
+
+`bin/agent-dev` starts and stops the leased agent lane for a task worktree.
+`bin/agent-preview` starts and stops the unleased operator preview lane.
+`bin/agent-cleanup` conservatively reports disposable task worktrees and defaults
+to dry-run.
 
 `bin/init-project` creates per-repo local workflow scaffolding. It:
 

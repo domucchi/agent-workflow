@@ -18,7 +18,7 @@ Build in dependency order. Each phase is usable on its own — **no hard gate be
   `~/.agent-workflow` bus, `docs/STATE.md`, and the `PROJECT.md` dev-stack block (incl. the preview profile). Foundation every later phase reads/writes.
 - [x] **Phase 1 — `agent-lease`** — #2
   Single dev-stack lease with reap-by-liveness and a jittered-backoff `claim --wait` (no queue). New `managing-resources` skill. *Depends on Phase 0.*
-- [ ] **Phase 2 — dev / preview / cleanup CLIs** — #3
+- [x] **Phase 2 — dev / preview / cleanup CLIs** — #3
   `agent-dev` (lease-coupled lifecycle, seeds `.env`, no orphans), `agent-preview` (operator lane on a second fixed port set over the same shared data, never leased), `agent-cleanup` (conservative dry-run-first reaper). *Depends on Phase 1.*
 - [ ] **Phase 3 — Control-plane web UI** — #4
   Bun + Hono daemon: read-model + actuator over the contract. Local token + confirm-on-dangerous + Tailscale. Holds no state; every button shells the same CLI. *Depends on Phase 2.*
