@@ -2,7 +2,7 @@
 
 Local workflow affordances for coding agents.
 
-This is not a task state machine. It installs short router guidance plus portable skills that agents load on demand: setup, context gathering, specs, verification, independent review, draft PR/MR prep, and CI recovery.
+This is not a task state machine. It installs short router guidance plus portable skills that agents load on demand: setup, context gathering, specs, resource management, verification, independent review, draft PR/MR prep, and CI recovery.
 
 ## Install
 
@@ -27,10 +27,23 @@ Keep this checkout somewhere permanent because installed skills symlink back to 
 - creates `~/.agent-workflow/projects/`
 - creates `~/.agent-workflow/NOTIFY.md` from `templates/NOTIFY.pushover.md` when missing
 - creates `~/.config/agent-workflow/pushover.env` with empty placeholders when missing
-- creates `~/.agent-workflow/bin/agent-notify` as a symlink to this checkout
+- creates `~/.agent-workflow/bin/agent-notify` and `~/.agent-workflow/bin/agent-lease` as symlinks to this checkout
 - never overwrites existing config or writes real secrets
 
 Pushover credentials are sourced only by `agent-notify` while sending a notification. Do not source `pushover.env` from shell startup.
+
+`bin/agent-lease` coordinates one leased dev stack per project:
+
+```bash
+bin/agent-lease claim --wait <resource>
+bin/agent-lease release <resource>
+bin/agent-lease list [resource]
+bin/agent-lease reap [resource]
+```
+
+Lease files live under `~/.agent-workflow/projects/<project-id>/leases/`.
+Liveness is derived from `kill -0` and `lsof`; unbound ports become reapable after
+the configured startup grace. No queue or waiter state is stored.
 
 `bin/init-project` creates per-repo local workflow scaffolding. It:
 
@@ -68,6 +81,7 @@ Status is derived by probing git, filesystem, and forge state. Do not store stat
 - `gathering-context`: inspect ticket/code/docs/MRs and write or refresh `context.md`
 - `writing-specs`: preserve approach, decisions, rejected options, scope, risks, and gates before risky work
 - `execution-mode`: choose supervised, draft-MR, implementation-only, or review-only execution
+- `managing-resources`: claim/release shared dev-stack resources for app, browser, and e2e work
 - `verifying-changes`: run project checks and use Playwright MCP for frontend/user-facing UI changes
 - `independent-review`: request a fresh read-only peer review before draft MR/PR or human review
 - `draft-pr`: open or update a draft PR/MR using project PR/MR preferences and actual verification evidence

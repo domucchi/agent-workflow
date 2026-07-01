@@ -1,0 +1,564 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+workflow_home="${AGENT_WORKFLOW_HOME:-$HOME/.agent-workflow}"
+command_name="${0##*/}"
+
+usage() {
+  cat >&2 <<USAGE
+Usage:
+  $command_name claim [options] <resource>
+  $command_name release [options] <resource>
+  $command_name list [options] [resource]
+  $command_name reap [options] [resource]
+
+Options:
+  --project-id <id>       Project id under ~/.agent-workflow/projects
+  --task-id <id>          Task id under the project tasks directory
+  --worktree <path>       Task worktree path
+  --pid <pid>             Holder pid; defaults to AGENT_LEASE_HOLDER_PID or parent pid
+  --port <port>           Add one port to the lease
+  --ports <ports>         Comma or space separated ports
+  --wait                  Retry claim until acquired or max wait expires
+  --max-wait <seconds>    Wait bound; defaults to PROJECT.md or 60
+  --port-grace <seconds>  Startup grace before unbound ports make a lease stale
+  --force                 Release without holder identity check
+USAGE
+}
+
+die() {
+  printf '%s: %s\n' "$command_name" "$*" >&2
+  exit 1
+}
+
+safe_segment() {
+  case "$1" in
+    ""|.|..|*/*|*\\*|*[$'\001'-$'\037']*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  printf '%s' "$value"
+}
+
+physical_path() {
+  local path="$1"
+  if [ -d "$path" ]; then
+    (cd "$path" && pwd -P)
+  else
+    printf '%s\n' "$path"
+  fi
+}
+
+workflow_home_path() {
+  mkdir -p "$workflow_home"
+  physical_path "$workflow_home"
+}
+
+resolve_project_id() {
+  if [ -n "${project_id:-}" ]; then
+    printf '%s\n' "$project_id"
+    return
+  fi
+  if [ -n "${AGENT_WORKFLOW_PROJECT_ID:-}" ]; then
+    printf '%s\n' "$AGENT_WORKFLOW_PROJECT_ID"
+    return
+  fi
+
+  local home cwd prefix rest git_root link target
+  home="$(workflow_home_path)"
+  cwd="$(pwd -P)"
+  prefix="$home/projects/"
+  if [[ "$cwd" == "$prefix"* ]]; then
+    rest="${cwd#$prefix}"
+    if [ -n "$rest" ]; then
+      printf '%s\n' "${rest%%/*}"
+      return
+    fi
+  fi
+
+  git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  link="$git_root/.agent-workflow"
+  if [ -n "$git_root" ] && [ -L "$link" ]; then
+    target="$(readlink "$link")"
+    if [ "${target#/}" = "$target" ]; then
+      target="$(cd "$(dirname "$link")" && pwd -P)/$target"
+    fi
+    printf '%s\n' "$(basename "$target")"
+    return
+  fi
+
+  die "project id required; pass --project-id or run from a workflow project/worktree"
+}
+
+resolve_task_id() {
+  if [ -n "${task_id:-}" ]; then
+    printf '%s\n' "$task_id"
+    return
+  fi
+  if [ -n "${AGENT_WORKFLOW_TASK_ID:-}" ]; then
+    printf '%s\n' "$AGENT_WORKFLOW_TASK_ID"
+    return
+  fi
+
+  local home cwd prefix rest
+  home="$(workflow_home_path)"
+  cwd="$(pwd -P)"
+  prefix="$home/projects/$resolved_project_id/tasks/"
+  if [[ "$cwd" == "$prefix"* ]]; then
+    rest="${cwd#$prefix}"
+    if [[ "$rest" == */* ]]; then
+      printf '%s\n' "${rest%%/*}"
+      return
+    fi
+  fi
+
+  die "task id required for claim; pass --task-id or run from a task worktree"
+}
+
+resolve_worktree() {
+  if [ -n "${worktree:-}" ]; then
+    physical_path "$worktree"
+    return
+  fi
+  if [ -n "${AGENT_WORKFLOW_WORKTREE:-}" ]; then
+    physical_path "$AGENT_WORKFLOW_WORKTREE"
+    return
+  fi
+
+  local git_root
+  git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -n "$git_root" ]; then
+    physical_path "$git_root"
+  else
+    pwd -P
+  fi
+}
+
+project_file() {
+  printf '%s/projects/%s/PROJECT.md\n' "$(workflow_home_path)" "$resolved_project_id"
+}
+
+extract_numbers_after_label() {
+  local label="$1"
+  local file="$2"
+  [ -f "$file" ] || return 0
+  sed -n "s/^$label:[[:space:]]*//p" "$file" |
+    head -n 1 |
+    tr ',;[]`()' '       ' |
+    tr -cs '0-9' ' '
+}
+
+load_project_ports() {
+  local file number
+  file="$(project_file)"
+  for number in $(extract_numbers_after_label "Canonical ports" "$file"); do
+    ports+=("$number")
+  done
+}
+
+load_project_max_wait() {
+  local file number
+  file="$(project_file)"
+  number="$(extract_numbers_after_label "Max wait seconds" "$file" | awk '{print $1}')"
+  if [ -n "$number" ]; then
+    printf '%s\n' "$number"
+  else
+    printf '60\n'
+  fi
+}
+
+load_project_port_grace() {
+  local file number
+  file="$(project_file)"
+  number="$(extract_numbers_after_label "Port grace seconds" "$file" | awk '{print $1}')"
+  if [ -n "$number" ]; then
+    printf '%s\n' "$number"
+  else
+    printf '10\n'
+  fi
+}
+
+validate_port() {
+  case "$1" in
+    ''|*[!0-9]*) die "invalid port: $1" ;;
+  esac
+  if [ "$1" -lt 1 ] || [ "$1" -gt 65535 ]; then
+    die "invalid port: $1"
+  fi
+}
+
+add_ports() {
+  local value="$1"
+  local port
+  value="${value//,/ }"
+  for port in $value; do
+    validate_port "$port"
+    ports+=("$port")
+  done
+}
+
+ports_json() {
+  local first=1
+  printf '['
+  for port in ${ports[@]+"${ports[@]}"}; do
+    if [ "$first" -eq 1 ]; then
+      first=0
+    else
+      printf ', '
+    fi
+    printf '%s' "$port"
+  done
+  printf ']'
+}
+
+lease_file_for() {
+  printf '%s/projects/%s/leases/%s.json\n' "$(workflow_home_path)" "$resolved_project_id" "$1"
+}
+
+json_string_field() {
+  local key="$1"
+  local file="$2"
+  sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$file" | head -n 1
+}
+
+json_number_field() {
+  local key="$1"
+  local file="$2"
+  sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p" "$file" | head -n 1
+}
+
+json_ports_field() {
+  local file="$1"
+  sed -n 's/.*"ports"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p' "$file" |
+    head -n 1 |
+    tr -cs '0-9' ' '
+}
+
+iso_epoch() {
+  local value="$1"
+  date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$value" '+%s' 2>/dev/null ||
+    date -u -d "$value" '+%s' 2>/dev/null ||
+    printf '0\n'
+}
+
+lease_age_seconds() {
+  local file="$1"
+  local acquired acquired_epoch now
+  acquired="$(json_string_field acquired_at "$file")"
+  acquired_epoch="$(iso_epoch "$acquired")"
+  now="$(date -u '+%s')"
+  if [ "$acquired_epoch" -eq 0 ]; then
+    printf '999999\n'
+  else
+    printf '%s\n' $((now - acquired_epoch))
+  fi
+}
+
+effective_port_grace() {
+  local value
+  value="${port_grace:-$(load_project_port_grace)}"
+  case "$value" in
+    ''|*[!0-9]*) die "invalid port grace seconds: $value" ;;
+  esac
+  printf '%s\n' "$value"
+}
+
+pid_alive() {
+  kill -0 "$1" 2>/dev/null
+}
+
+port_bound() {
+  command -v lsof >/dev/null 2>&1 || die "lsof is required for port liveness checks"
+  lsof -nP -iTCP:"$1" -sTCP:LISTEN -t >/dev/null 2>&1
+}
+
+lease_is_stale() {
+  local file="$1"
+  local holder port unbound_port grace age
+  [ -f "$file" ] || return 1
+
+  holder="$(json_number_field holder_pid "$file")"
+  if [ -z "$holder" ] || ! pid_alive "$holder"; then
+    return 0
+  fi
+
+  unbound_port=0
+  for port in $(json_ports_field "$file"); do
+    if ! port_bound "$port"; then
+      unbound_port=1
+      break
+    fi
+  done
+  if [ "$unbound_port" -eq 1 ]; then
+    grace="$(effective_port_grace)"
+    age="$(lease_age_seconds "$file")"
+    if [ "$age" -ge "$grace" ]; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+reap_one() {
+  local resource="$1"
+  local file
+  file="$(lease_file_for "$resource")"
+  if lease_is_stale "$file"; then
+    rm -f "$file"
+    printf 'reaped %s\n' "$resource"
+  fi
+}
+
+write_lease_json() {
+  local resource="$1"
+  local holder_pid="$2"
+  local acquired_at
+  acquired_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+  printf '{\n'
+  printf '  "resource": "%s",\n' "$(json_escape "$resource")"
+  printf '  "holder_pid": %s,\n' "$holder_pid"
+  printf '  "task_id": "%s",\n' "$(json_escape "$resolved_task_id")"
+  printf '  "project_id": "%s",\n' "$(json_escape "$resolved_project_id")"
+  printf '  "worktree": "%s",\n' "$(json_escape "$resolved_worktree")"
+  printf '  "ports": %s,\n' "$(ports_json)"
+  printf '  "acquired_at": "%s"\n' "$acquired_at"
+  printf '}\n'
+}
+
+try_claim_once() {
+  local resource="$1"
+  local file lease_dir tmp
+  file="$(lease_file_for "$resource")"
+  lease_dir="$(dirname "$file")"
+  mkdir -p "$lease_dir"
+
+  reap_one "$resource" >/dev/null
+  if [ -e "$file" ]; then
+    return 1
+  fi
+
+  tmp="$(mktemp "$lease_dir/.$resource.XXXXXX")"
+  write_lease_json "$resource" "$holder_pid" > "$tmp"
+  if ln "$tmp" "$file" 2>/dev/null; then
+    rm -f "$tmp"
+    printf '%s\n' "$file"
+    return 0
+  fi
+
+  rm -f "$tmp"
+  return 1
+}
+
+claim_resource() {
+  local resource="$1"
+  local started now elapsed delay_ms jitter_ms sleep_seconds
+
+  if [ "${#ports[@]}" -eq 0 ]; then
+    load_project_ports
+  fi
+  max_wait="${max_wait:-$(load_project_max_wait)}"
+  case "$max_wait" in
+    ''|*[!0-9]*) die "invalid max wait seconds: $max_wait" ;;
+  esac
+
+  holder_pid="${holder_pid:-${AGENT_LEASE_HOLDER_PID:-$PPID}}"
+  case "$holder_pid" in
+    ''|*[!0-9]*) die "invalid holder pid: $holder_pid" ;;
+  esac
+  if ! pid_alive "$holder_pid"; then
+    die "holder pid is not live: $holder_pid"
+  fi
+
+  resolved_task_id="$(resolve_task_id)"
+  safe_segment "$resolved_task_id" || die "invalid task id: $resolved_task_id"
+  resolved_worktree="$(resolve_worktree)"
+
+  if try_claim_once "$resource"; then
+    return 0
+  fi
+  if [ "$wait_for_claim" -eq 0 ]; then
+    die "lease is held: $resource"
+  fi
+
+  started="$(date +%s)"
+  delay_ms=250
+  while :; do
+    now="$(date +%s)"
+    elapsed=$((now - started))
+    if [ "$elapsed" -ge "$max_wait" ]; then
+      die "timed out waiting for lease: $resource"
+    fi
+
+    jitter_ms=$((RANDOM % (delay_ms + 1)))
+    sleep_seconds="$(( (delay_ms + jitter_ms) / 1000 )).$(printf '%03d' $(( (delay_ms + jitter_ms) % 1000 )))"
+    sleep "$sleep_seconds"
+
+    if try_claim_once "$resource"; then
+      return 0
+    fi
+
+    if [ "$delay_ms" -lt 2000 ]; then
+      delay_ms=$((delay_ms * 2))
+      if [ "$delay_ms" -gt 2000 ]; then
+        delay_ms=2000
+      fi
+    fi
+  done
+}
+
+release_resource() {
+  local resource="$1"
+  local file stored_pid stored_task stored_worktree current_task current_worktree
+  file="$(lease_file_for "$resource")"
+  [ -e "$file" ] || return 0
+  if lease_is_stale "$file"; then
+    rm -f "$file"
+    return 0
+  fi
+
+  if [ "$force_release" -eq 1 ]; then
+    rm -f "$file"
+    return 0
+  fi
+
+  stored_pid="$(json_number_field holder_pid "$file")"
+  holder_pid="${holder_pid:-${AGENT_LEASE_HOLDER_PID:-}}"
+  if [ -n "$holder_pid" ] && [ "$stored_pid" = "$holder_pid" ]; then
+    rm -f "$file"
+    return 0
+  fi
+
+  stored_task="$(json_string_field task_id "$file")"
+  stored_worktree="$(json_string_field worktree "$file")"
+  current_task="$(resolve_task_id 2>/dev/null || true)"
+  current_worktree="$(resolve_worktree)"
+  if [ -n "$current_task" ] && [ "$stored_task" = "$current_task" ] && [ "$stored_worktree" = "$current_worktree" ]; then
+    rm -f "$file"
+    return 0
+  fi
+
+  die "refusing to release lease held by another holder: $resource"
+}
+
+list_one() {
+  local resource="$1"
+  local file state holder task ports_text
+  file="$(lease_file_for "$resource")"
+  [ -f "$file" ] || return 0
+
+  state="live"
+  if lease_is_stale "$file"; then
+    state="stale"
+  fi
+  holder="$(json_number_field holder_pid "$file")"
+  task="$(json_string_field task_id "$file")"
+  ports_text="$(json_ports_field "$file" | xargs)"
+  printf '%s\t%s\tpid=%s\ttask=%s\tports=[%s]\n' "$resource" "$state" "$holder" "$task" "$ports_text"
+}
+
+list_resources() {
+  local resource file
+  if [ -n "${resource_name:-}" ]; then
+    list_one "$resource_name"
+    return
+  fi
+
+  local lease_dir
+  lease_dir="$(dirname "$(lease_file_for placeholder)")"
+  [ -d "$lease_dir" ] || return 0
+  for file in "$lease_dir"/*.json; do
+    [ -e "$file" ] || continue
+    resource="$(basename "$file" .json)"
+    list_one "$resource"
+  done
+}
+
+reap_resources() {
+  local file resource lease_dir
+  if [ -n "${resource_name:-}" ]; then
+    reap_one "$resource_name"
+    return
+  fi
+
+  lease_dir="$(dirname "$(lease_file_for placeholder)")"
+  [ -d "$lease_dir" ] || return 0
+  for file in "$lease_dir"/*.json; do
+    [ -e "$file" ] || continue
+    resource="$(basename "$file" .json)"
+    reap_one "$resource"
+  done
+}
+
+if [ "$#" -eq 0 ]; then
+  usage
+  exit 64
+fi
+
+subcommand="$1"
+shift
+
+project_id=""
+task_id=""
+worktree=""
+holder_pid=""
+max_wait=""
+port_grace=""
+resource_name=""
+wait_for_claim=0
+force_release=0
+ports=()
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --project-id) shift; [ "$#" -gt 0 ] || die "--project-id requires a value"; project_id="$1" ;;
+    --task-id) shift; [ "$#" -gt 0 ] || die "--task-id requires a value"; task_id="$1" ;;
+    --worktree) shift; [ "$#" -gt 0 ] || die "--worktree requires a value"; worktree="$1" ;;
+    --pid) shift; [ "$#" -gt 0 ] || die "--pid requires a value"; holder_pid="$1" ;;
+    --port) shift; [ "$#" -gt 0 ] || die "--port requires a value"; add_ports "$1" ;;
+    --ports) shift; [ "$#" -gt 0 ] || die "--ports requires a value"; add_ports "$1" ;;
+    --wait) wait_for_claim=1 ;;
+    --max-wait) shift; [ "$#" -gt 0 ] || die "--max-wait requires a value"; max_wait="$1" ;;
+    --port-grace) shift; [ "$#" -gt 0 ] || die "--port-grace requires a value"; port_grace="$1" ;;
+    --force) force_release=1 ;;
+    -h|--help) usage; exit 0 ;;
+    --) shift; break ;;
+    -*) die "unknown option: $1" ;;
+    *)
+      if [ -n "$resource_name" ]; then
+        die "unexpected argument: $1"
+      fi
+      resource_name="$1"
+      ;;
+  esac
+  shift
+done
+
+case "$subcommand" in
+  claim|release)
+    [ -n "$resource_name" ] || die "$subcommand requires a resource"
+    ;;
+  list|reap) ;;
+  *) usage; exit 64 ;;
+esac
+
+if [ -n "$resource_name" ]; then
+  safe_segment "$resource_name" || die "invalid resource: $resource_name"
+fi
+
+resolved_project_id="$(resolve_project_id)"
+safe_segment "$resolved_project_id" || die "invalid project id: $resolved_project_id"
+
+case "$subcommand" in
+  claim) claim_resource "$resource_name" ;;
+  release) release_resource "$resource_name" ;;
+  list) list_resources ;;
+  reap) reap_resources ;;
+esac
