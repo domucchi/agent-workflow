@@ -11,6 +11,14 @@ notify_bin="$workflow_home/bin/agent-notify"
 notify_src="$root/bin/agent-notify"
 lease_bin="$workflow_home/bin/agent-lease"
 lease_src="$root/bin/agent-lease"
+dev_bin="$workflow_home/bin/agent-dev"
+dev_src="$root/bin/agent-dev"
+preview_bin="$workflow_home/bin/agent-preview"
+preview_src="$root/bin/agent-preview"
+cleanup_bin="$workflow_home/bin/agent-cleanup"
+cleanup_src="$root/bin/agent-cleanup"
+runtime_lib="$workflow_home/bin/agent-runtime-lib"
+runtime_lib_src="$root/bin/agent-runtime-lib"
 
 ensure_executable() {
   local path="$1"
@@ -49,6 +57,9 @@ chmod 700 "$workflow_home" "$workflow_home/projects" "$workflow_home/bin" "$conf
 
 ensure_executable "$notify_src"
 ensure_executable "$lease_src"
+ensure_executable "$dev_src"
+ensure_executable "$preview_src"
+ensure_executable "$cleanup_src"
 
 if [ ! -f "$notify_file" ]; then
   cp "$notify_template" "$notify_file"
@@ -76,6 +87,10 @@ fi
 
 ensure_symlink "$notify_bin" "$notify_src"
 ensure_symlink "$lease_bin" "$lease_src"
+ensure_symlink "$dev_bin" "$dev_src"
+ensure_symlink "$preview_bin" "$preview_src"
+ensure_symlink "$cleanup_bin" "$cleanup_src"
+ensure_symlink "$runtime_lib" "$runtime_lib_src"
 
 printf '\nNext steps:\n'
 printf '1. Edit %s and fill PUSHOVER_APP_TOKEN/PUSHOVER_USER_KEY.\n' "$env_file"

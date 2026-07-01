@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="${0##*/}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/agent-runtime-lib
+source "$script_dir/agent-runtime-lib"
+
+usage() {
+  cat >&2 <<USAGE
+Usage:
+  $command_name [--project-id <id>] [--worktree <path>] up
+  $command_name [--project-id <id>] down
+  $command_name [--project-id <id>] status
+USAGE
+}
+
+project_run_dir() {
+  printf '%s/run\n' "$(project_home)"
+}
+
+pid_file() {
+  printf '%s/preview.pid\n' "$(project_run_dir)"
+}
+
+log_file() {
+  printf '%s/preview.log\n' "$(project_run_dir)"
+}
+
+preview_ports() {
+  ports_for_label "Preview ports"
+}
+
+preview_worktree() {
+  if [ -n "${worktree:-}" ]; then
+    physical_path "$worktree"
+    return
+  fi
+  local git_root
+  git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$git_root" ] || die "preview worktree required; pass --worktree from outside a repo"
+  physical_path "$git_root"
+}
+
+supervise_preview() {
+  resolved_project_id="$AGENT_PREVIEW_PROJECT_ID"
+  worktree="$AGENT_PREVIEW_WORKTREE"
+
+  local run pid_path up_command child=""
+  run="$(project_run_dir)"
+  pid_path="$(pid_file)"
+  up_command="$(require_label "Preview up command")"
+
+  cleanup() {
+    if [ -n "$child" ]; then
+      kill_tree_wait "$child"
+    fi
+    rm -f "$pid_path"
+    rmdir "$run" 2>/dev/null || true
+  }
+  terminate() {
+    exit 143
+  }
+  trap cleanup EXIT
+  trap terminate TERM INT
+
+  printf '%s\n' "$$" > "$pid_path"
+  (
+    cd "$worktree"
+    exec bash -lc "$up_command"
+  ) &
+  child="$!"
+  wait "$child"
+}
+
+cmd_up() {
+  local run log pid worktree_path
+  worktree_path="$(preview_worktree)"
+  run="$(project_run_dir)"
+  log="$(log_file)"
+  mkdir -p "$run"
+  if [ -f "$(pid_file)" ]; then
+    pid="$(cat "$(pid_file)")"
+    if pid_alive "$pid"; then
+      printf 'running pid=%s\n' "$pid"
+      return 0
+    fi
+  fi
+
+  : > "$log"
+  AGENT_PREVIEW_PROJECT_ID="$resolved_project_id" \
+  AGENT_PREVIEW_WORKTREE="$worktree_path" \
+    "$0" _supervise >> "$log" 2>&1 &
+  pid="$!"
+  printf '%s\n' "$pid" > "$(pid_file)"
+  printf 'started pid=%s log=%s\n' "$pid" "$log"
+}
+
+cmd_down() {
+  local pid down_command worktree_path
+  if [ -f "$(pid_file)" ]; then
+    pid="$(cat "$(pid_file)")"
+    kill_tree_wait "$pid"
+  fi
+  down_command="$(label_value "Preview down command" "$(project_file)")"
+  if [ -n "$down_command" ]; then
+    worktree_path="$(preview_worktree)"
+    (
+      cd "$worktree_path"
+      bash -lc "$down_command"
+    )
+  fi
+  rm -f "$(pid_file)"
+  rmdir "$(project_run_dir)" 2>/dev/null || true
+  printf 'stopped preview\n'
+}
+
+cmd_status() {
+  local pid ports state="stopped" ports_state="none"
+  ports="$(preview_ports)"
+  if [ -f "$(pid_file)" ]; then
+    pid="$(cat "$(pid_file)")"
+    if pid_alive "$pid"; then
+      state="running"
+      if [ -n "$ports" ]; then
+        if all_ports_bound "$ports"; then
+          ports_state="bound"
+        else
+          ports_state="unbound"
+        fi
+      fi
+    fi
+  fi
+  printf 'preview state=%s ports=%s\n' "$state" "$ports_state"
+  [ "$state" = "running" ] && { [ "$ports_state" != "unbound" ] || return 1; }
+}
+
+if [ "${1:-}" = "_supervise" ]; then
+  supervise_preview
+  exit $?
+fi
+
+project_id=""
+worktree=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --project-id) shift; [ "$#" -gt 0 ] || die "--project-id requires a value"; project_id="$1" ;;
+    --worktree) shift; [ "$#" -gt 0 ] || die "--worktree requires a value"; worktree="$1" ;;
+    -h|--help) usage; exit 0 ;;
+    up|down|status) subcommand="$1"; shift; break ;;
+    *) die "unknown option or command: $1" ;;
+  esac
+  shift
+done
+
+[ -n "${subcommand:-}" ] || { usage; exit 64; }
+[ "$#" -eq 0 ] || die "unexpected argument: $1"
+resolved_project_id="$(resolve_project_id)"
+safe_segment "$resolved_project_id" || die "invalid project id: $resolved_project_id"
+
+case "$subcommand" in
+  up) cmd_up ;;
+  down) cmd_down ;;
+  status) cmd_status ;;
+esac

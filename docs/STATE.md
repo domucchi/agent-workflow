@@ -19,6 +19,11 @@ configuration, task notes, and live-process annotations.
       PR_TEMPLATE.md
       leases/
         <resource>.json
+      run/
+        preview.pid
+        preview.log
+      archive/
+        <task-id>-<timestamp>/
       tasks/
         <task-id>/
           context.md
@@ -105,6 +110,25 @@ supervisor log stream. Remove `run/` when the stack stops.
 
 Runtime files are annotations for cleanup and operator visibility. They do not
 replace process and port checks.
+
+When the operator preview lane is running, it may create:
+
+```text
+~/.agent-workflow/projects/<project-id>/run/preview.pid
+~/.agent-workflow/projects/<project-id>/run/preview.log
+```
+
+Preview runtime files are project-scoped because preview is not owned by a task
+and is never claimed or reaped by lease tooling.
+
+Cleanup archives removed task folders under:
+
+```text
+~/.agent-workflow/projects/<project-id>/archive/<task-id>-<timestamp>/
+```
+
+Archived task folders are historical metadata only; active state is still derived
+from current `tasks/`, git, processes, ports, and forge state.
 
 ## Worktree Invariant
 
