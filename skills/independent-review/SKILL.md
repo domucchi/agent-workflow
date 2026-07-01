@@ -19,7 +19,7 @@ For tiny mechanical changes, skip independent review only when project lore allo
 
 For normal changes, use one fresh read-only subagent before draft PR/MR.
 
-If the first review finds medium or high severity findings, fix valid findings and request one re-review. Do not keep looping without a human turn.
+If the first review finds medium or high severity findings, fix valid findings and follow the re-review limit owned by `execution-mode`. Do not keep looping without a human turn.
 
 Risky changes require review. Consider a second reviewer when risk remains after the first pass.
 

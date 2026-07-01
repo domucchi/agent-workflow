@@ -82,7 +82,10 @@ http_code="$(curl -w '%{http_code}' -o "$response_file" "${curl_args[@]}")" || {
   printf 'agent-notify: Pushover request failed\n' >&2
   exit 1
 }
-response="$(cat "$response_file")"
+response="$(cat "$response_file")" || {
+  printf 'agent-notify: could not read Pushover response\n' >&2
+  exit 1
+}
 request="$(sed -n 's/.*"request"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<< "$response")"
 
 case "$http_code" in
