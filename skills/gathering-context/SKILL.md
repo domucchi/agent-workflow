@@ -24,9 +24,11 @@ Use primary sources:
 
 Prefer live probes over stored status.
 
-## Write `context.md`
+## Write `context.md` Only When Useful
 
 Create or refresh `context.md` only when synthesis is useful or scope changed.
+
+Use it for gathered facts, source links, constraints, or code relationships that would be expensive to rediscover. Do not create it just because a task started.
 
 Include:
 
@@ -39,4 +41,4 @@ Include:
 
 Do not turn `context.md` into status. Branch, CI state, MR number, and current diff are derived by probing.
 
-If the implementation is trivial, write a short intent note in `scratch.md` instead.
+For tiny obvious work, write a short intent note in `scratch.md` instead.

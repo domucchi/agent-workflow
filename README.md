@@ -2,13 +2,14 @@
 
 Local workflow affordances for coding agents.
 
-This is not a task state machine. It installs short router guidance plus portable skills that agents load on demand: setup, context gathering, specs, verification, independent review, and CI recovery.
+This is not a task state machine. It installs short router guidance plus portable skills that agents load on demand: setup, context gathering, specs, verification, independent review, draft PR/MR prep, and CI recovery.
 
 ## Install
 
 ```bash
 bin/apply
 bin/init-local
+bin/init-project /path/to/repo [project-id]
 ```
 
 `bin/apply` installs skills and router guidance. It is idempotent. It:
@@ -31,12 +32,22 @@ Keep this checkout somewhere permanent because installed skills symlink back to 
 
 Pushover credentials are sourced only by `agent-notify` while sending a notification. Do not source `pushover.env` from shell startup.
 
+`bin/init-project` creates per-repo local workflow scaffolding. It:
+
+- creates `~/.agent-workflow/projects/<project-id>/PROJECT.md` when missing
+- creates `~/.agent-workflow/projects/<project-id>/PR_TEMPLATE.md` when missing
+- creates or repairs the repo-local `.agent-workflow` symlink
+- adds `.agent-workflow` to the local git exclude file
+- creates `.new` files instead of overwriting existing project lore/templates
+- never edits committed repo files or reads env files
+
 ## Runtime Files
 
 Task and project memory live outside code repositories:
 
 ```text
 ~/.agent-workflow/projects/<project-id>/PROJECT.md
+~/.agent-workflow/projects/<project-id>/PR_TEMPLATE.md
 ~/.agent-workflow/projects/<project-id>/tasks/<task-id>/
 ~/.agent-workflow/projects/<project-id>/tasks/<task-id>/worktree/
 ```
@@ -47,7 +58,7 @@ Projects may expose that workspace through a local, ignored repo symlink:
 <repo>/.agent-workflow -> ~/.agent-workflow/projects/<project-id>
 ```
 
-`PROJECT.md` holds local project lore. Task folders hold non-derivable task meaning: context, decisions, rejected options, verification notes, review notes, and handoff notes.
+`PROJECT.md` holds local project lore. `PR_TEMPLATE.md` holds the project-local fallback body shape for draft PRs/MRs. Task folders hold non-derivable task meaning: context, decisions, rejected options, verification notes, review notes, and handoff notes.
 
 Status is derived by probing git, filesystem, and forge state. Do not store status files.
 
@@ -59,6 +70,7 @@ Status is derived by probing git, filesystem, and forge state. Do not store stat
 - `execution-mode`: choose supervised, draft-MR, implementation-only, or review-only execution
 - `verifying-changes`: run project checks and use Playwright MCP for frontend/user-facing UI changes
 - `independent-review`: request a fresh read-only peer review before draft MR/PR or human review
+- `draft-pr`: open or update a draft PR/MR using project PR/MR preferences and actual verification evidence
 - `ci-recovery`: inspect failing CI, make one obvious fix attempt, then report
 - `handoff`: overwrite the forward pointer for the next session
 - `notify-human`: send a low-detail notification when human attention is needed

@@ -7,7 +7,6 @@ Delete sections that do not earn their keep.
 ## Workspace
 
 Project id:
-Repo link: `.agent-workflow`
 
 ## Branches
 
@@ -27,9 +26,19 @@ Full gate:
 
 Browser/UI verification:
 
-## Tool Notes
+## Review
 
-Preferred peer reviewer:
+Default reviewer:
+
+Escalation:
+
+## PR / MR
+
+Template: `.agent-workflow/PR_TEMPLATE.md`
+
+Draft by default: yes
+
+## Tool Preferences
 
 Notify:
 
@@ -37,8 +46,14 @@ Forge:
 
 MCP/project-specific tools:
 
-## Workflow Notes
+## Env
 
-## Review Notes
+Env copying is allowlist-based. Never read, print, summarize, diff, or commit production secrets.
+
+## Stop Conditions
+
+Notify on PR/MR ready, blocked work, human judgment needed, or CI failure after one recovery attempt.
+
+## Workflow Notes
 
 ## CI Notes

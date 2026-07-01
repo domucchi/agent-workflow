@@ -9,13 +9,19 @@ Independent review means a fresh reviewer. Do not satisfy it by reviewing your o
 
 ## Read First
 
-Read repo instructions, project lore, task `context.md`, task `spec.md` if present, verification notes, and current diff.
+Read repo instructions, project lore, task `context.md` if present, task `spec.md` if present, verification notes, and current diff.
 
 ## Reviewer Choice
 
 Match reviewer strength to risk.
 
-Use a fresh read-only subagent for small or medium changes when the diff is narrow, behavior is clear, and the touched area is low risk.
+For tiny mechanical changes, skip independent review only when project lore allows it and local verification passed.
+
+For normal changes, use one fresh read-only subagent before draft PR/MR.
+
+If the first review finds medium or high severity findings, fix valid findings and request one re-review. Do not keep looping without a human turn.
+
+Risky changes require review. Consider a second reviewer when risk remains after the first pass.
 
 Prefer a different tool/vendor through peer CLI for:
 
@@ -25,6 +31,7 @@ Prefer a different tool/vendor through peer CLI for:
 - broad refactors
 - hard-to-test behavior
 - changes where the implementer is uncertain
+- project lore explicitly prefers peer CLI for this class of work
 
 Peer CLI paths:
 
@@ -48,6 +55,7 @@ Use both a fresh read-only subagent and peer CLI only when the extra review cost
 - previous reviewer found substantial issues
 - implementer is uncertain
 - task had repeated failed attempts
+- project lore asks for double review on this kind of change
 
 Preferred order:
 
@@ -63,7 +71,7 @@ If reviews disagree, resolve concrete findings first. Ask the user when disagree
 Give the reviewer enough raw material to judge the work:
 
 - task request and relevant conversation constraints
-- `context.md`
+- `context.md`, if present
 - `spec.md`, if present
 - verification evidence
 - changed files list

@@ -40,6 +40,14 @@ Add a short slug when useful: `ABC-123-account-settings`, `GH-23-login-redirect`
 
 Reject names containing `/`, `\`, empty segments, control characters, shell metacharacters, or path segments equal to `.` or `..`. Collapse whitespace and punctuation in slugs to `-`.
 
+## Artifact Weight
+
+- Tiny: create task folder and `scratch.md`; skip `context.md` and `spec.md` unless uncertainty appears.
+- Normal: use `scratch.md`; add `context.md` only for facts/sources that would be expensive to rediscover; add `spec.md` only when decisions, tradeoffs, or acceptance criteria matter.
+- Risky: create `context.md` and `spec.md` before implementation.
+
+Do not create artifacts just because a task started. Create them when their lifecycle begins.
+
 ## Task Home
 
 Use:
@@ -66,7 +74,7 @@ Create `scratch.md` if missing:
 ## CI notes
 ```
 
-Create `context.md`, `spec.md`, `handoff.md`, `evidence/`, `reviews/`, and `screenshots/` only when their lifecycle begins.
+Create `context.md`, `spec.md`, `handoff.md`, `evidence/`, `reviews/`, and `screenshots/` only when useful or when their lifecycle begins.
 
 ## Repo Symlink
 

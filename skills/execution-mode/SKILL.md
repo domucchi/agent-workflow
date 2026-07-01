@@ -47,6 +47,7 @@ In `draft-mr`, use existing skills as needed:
 - `writing-specs`
 - `verifying-changes`
 - `independent-review`
+- `draft-pr`
 - `ci-recovery`
 - `handoff`
 - `notify-human`
@@ -56,11 +57,12 @@ Expected happy path:
 1. Implement in the task worktree.
 2. Verify changed behavior.
 3. Request independent review.
-4. Fix obvious high-severity findings that are within scope.
-5. Open or update a draft MR/PR.
-6. Check CI snapshot.
-7. Attempt one obvious CI fix if needed.
-8. Notify human when draft MR/PR is ready or a stop condition fires.
+4. Fix obvious valid findings that are within scope.
+5. Request one re-review when medium/high findings were fixed.
+6. Use `draft-pr` to open or update a draft MR/PR.
+7. Check CI snapshot.
+8. Attempt one obvious CI fix if needed.
+9. Notify human when draft MR/PR is ready or a stop condition fires.
 
 This is one autonomous pass, not an infinite loop. Do not keep cycling through review/CI fixes without a human turn.
 

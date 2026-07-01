@@ -32,6 +32,16 @@ This creates local runtime/config scaffolding only. It never overwrites existing
 
 Pushover credentials stay in `~/.config/agent-workflow/pushover.env` and are sourced only by the notification command.
 
+## Project Setup
+
+Run:
+
+```bash
+bin/init-project /path/to/repo [project-id]
+```
+
+This creates or repairs project-local workflow scaffolding without editing committed repo files.
+
 ## Boundaries
 
 This repository is the source of workflow affordances, not task state.
@@ -46,6 +56,12 @@ Project lore lives at:
 
 ```text
 ~/.agent-workflow/projects/<project-id>/PROJECT.md
+```
+
+Project PR/MR template preference may point to:
+
+```text
+~/.agent-workflow/projects/<project-id>/PR_TEMPLATE.md
 ```
 
 Notification preferences live at:

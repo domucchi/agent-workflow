@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+workflow_home="${AGENT_WORKFLOW_HOME:-$HOME/.agent-workflow}"
+
+usage() {
+  printf 'Usage: %s <repo> [project-id]\n' "${0##*/}" >&2
+}
+
+sanitize_segment() {
+  local value="$1"
+
+  value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  value="$(printf '%s' "$value" | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
+
+  if [ -z "$value" ] || [ "$value" = "." ] || [ "$value" = ".." ]; then
+    return 1
+  fi
+
+  printf '%s\n' "$value"
+}
+
+derive_project_id() {
+  local repo="$1"
+  local remote
+  local parsed
+
+  remote="$(git -C "$repo" remote get-url origin 2>/dev/null || true)"
+  if [ -n "$remote" ]; then
+    parsed="$(printf '%s' "$remote" | sed -E '
+      s#^[^@/]+@([^:]+):#\1/#;
+      s#^[a-zA-Z]+://([^@/]+@)?([^/]+)/#\2/#;
+      s#\.git$##;
+    ')"
+    sanitize_segment "$parsed"
+    return
+  fi
+
+  sanitize_segment "$(basename "$repo")"
+}
+
+write_project_template() {
+  local path="$1"
+  local project_id="$2"
+
+  sed "s/^Project id:.*/Project id: \`$project_id\`/" "$root/templates/PROJECT.md" > "$path"
+}
+
+write_new_once() {
+  local source="$1"
+  local target="$2"
+  local label="$3"
+  local candidate="$target.new"
+
+  if [ ! -e "$target" ]; then
+    cp "$source" "$target"
+    printf 'Created %s\n' "$target"
+  elif cmp -s "$source" "$target"; then
+    printf 'Exists %s\n' "$target"
+  elif [ ! -e "$candidate" ]; then
+    cp "$source" "$candidate"
+    printf 'Exists %s; wrote %s for review (%s)\n' "$target" "$candidate" "$label"
+  else
+    printf 'Exists %s; %s already available\n' "$target" "$candidate"
+  fi
+}
+
+write_project_new_once() {
+  local target="$1"
+  local project_id="$2"
+  local candidate="$target.new"
+  local tmp
+
+  tmp="$(mktemp)"
+  write_project_template "$tmp" "$project_id"
+
+  if [ ! -e "$target" ]; then
+    mv "$tmp" "$target"
+    printf 'Created %s\n' "$target"
+  elif cmp -s "$tmp" "$target"; then
+    rm -f "$tmp"
+    printf 'Exists %s\n' "$target"
+  elif [ ! -e "$candidate" ]; then
+    mv "$tmp" "$candidate"
+    printf 'Exists %s; wrote %s for review\n' "$target" "$candidate"
+  else
+    rm -f "$tmp"
+    printf 'Exists %s; %s already available\n' "$target" "$candidate"
+  fi
+}
+
+ensure_exclude() {
+  local repo="$1"
+  local common_dir
+  local exclude_file
+
+  common_dir="$(git -C "$repo" rev-parse --git-common-dir)"
+  if [ "${common_dir#/}" = "$common_dir" ]; then
+    common_dir="$repo/$common_dir"
+  fi
+  common_dir="$(cd "$common_dir" && pwd -P)"
+  exclude_file="$common_dir/info/exclude"
+
+  mkdir -p "$(dirname "$exclude_file")"
+  touch "$exclude_file"
+
+  if grep -qE '^/?\.agent-workflow/?$' "$exclude_file"; then
+    printf 'Local exclude already contains .agent-workflow\n'
+  else
+    printf '\n.agent-workflow\n' >> "$exclude_file"
+    printf 'Updated %s\n' "$exclude_file"
+  fi
+}
+
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+  usage
+  exit 64
+fi
+
+repo_input="$1"
+repo="$(cd "$repo_input" && git rev-parse --show-toplevel)"
+
+if [ "$#" -eq 2 ]; then
+  project_id="$(sanitize_segment "$2")"
+else
+  project_id="$(derive_project_id "$repo")"
+fi
+
+project_home="$workflow_home/projects/$project_id"
+project_file="$project_home/PROJECT.md"
+pr_template="$project_home/PR_TEMPLATE.md"
+repo_link="$repo/.agent-workflow"
+
+mkdir -p "$workflow_home/projects" "$project_home"
+chmod 700 "$workflow_home" "$workflow_home/projects" "$project_home"
+
+write_project_new_once "$project_file" "$project_id"
+write_new_once "$root/templates/PR_TEMPLATE.md" "$pr_template" "PR/MR template"
+
+if [ -L "$repo_link" ]; then
+  current="$(readlink "$repo_link")"
+  if [ "$current" = "$project_home" ]; then
+    printf 'Exists %s -> %s\n' "$repo_link" "$current"
+  else
+    ln -sfn "$project_home" "$repo_link"
+    printf 'Updated %s -> %s\n' "$repo_link" "$project_home"
+  fi
+elif [ -e "$repo_link" ]; then
+  printf 'Refusing to overwrite non-symlink %s\n' "$repo_link" >&2
+  exit 1
+else
+  ln -s "$project_home" "$repo_link"
+  printf 'Created %s -> %s\n' "$repo_link" "$project_home"
+fi
+
+ensure_exclude "$repo"
+
+printf '\nProject id: %s\n' "$project_id"
+printf 'Project home: %s\n' "$project_home"
