@@ -9,16 +9,46 @@ notify_file="$workflow_home/NOTIFY.md"
 env_file="$config_home/pushover.env"
 notify_bin="$workflow_home/bin/agent-notify"
 notify_src="$root/bin/agent-notify"
+lease_bin="$workflow_home/bin/agent-lease"
+lease_src="$root/bin/agent-lease"
+
+ensure_executable() {
+  local path="$1"
+  if [ ! -x "$path" ]; then
+    chmod +x "$path" 2>/dev/null || {
+      printf 'Refusing to install non-executable %s\n' "$path" >&2
+      exit 1
+    }
+  fi
+}
+
+ensure_symlink() {
+  local link="$1"
+  local target="$2"
+  local current
+
+  if [ -L "$link" ]; then
+    current="$(readlink "$link")"
+    if [ "$current" = "$target" ]; then
+      printf 'Exists %s -> %s\n' "$link" "$current"
+    else
+      ln -sfn "$target" "$link"
+      printf 'Updated %s -> %s\n' "$link" "$target"
+    fi
+  elif [ -e "$link" ]; then
+    printf 'Refusing to overwrite non-symlink %s\n' "$link" >&2
+    exit 1
+  else
+    ln -s "$target" "$link"
+    printf 'Created %s -> %s\n' "$link" "$target"
+  fi
+}
 
 mkdir -p "$workflow_home/projects" "$workflow_home/bin" "$config_home"
 chmod 700 "$workflow_home" "$workflow_home/projects" "$workflow_home/bin" "$config_home"
 
-if [ ! -x "$notify_src" ]; then
-  chmod +x "$notify_src" 2>/dev/null || {
-    printf 'Refusing to install non-executable %s\n' "$notify_src" >&2
-    exit 1
-  }
-fi
+ensure_executable "$notify_src"
+ensure_executable "$lease_src"
 
 if [ ! -f "$notify_file" ]; then
   cp "$notify_template" "$notify_file"
@@ -44,21 +74,8 @@ else
   printf 'Exists %s\n' "$env_file"
 fi
 
-if [ -L "$notify_bin" ]; then
-  current_notify_src="$(readlink "$notify_bin")"
-  if [ "$current_notify_src" = "$notify_src" ]; then
-    printf 'Exists %s -> %s\n' "$notify_bin" "$current_notify_src"
-  else
-    ln -sfn "$notify_src" "$notify_bin"
-    printf 'Updated %s -> %s\n' "$notify_bin" "$notify_src"
-  fi
-elif [ -e "$notify_bin" ]; then
-  printf 'Refusing to overwrite non-symlink %s\n' "$notify_bin" >&2
-  exit 1
-else
-  ln -s "$notify_src" "$notify_bin"
-  printf 'Created %s -> %s\n' "$notify_bin" "$notify_src"
-fi
+ensure_symlink "$notify_bin" "$notify_src"
+ensure_symlink "$lease_bin" "$lease_src"
 
 printf '\nNext steps:\n'
 printf '1. Edit %s and fill PUSHOVER_APP_TOKEN/PUSHOVER_USER_KEY.\n' "$env_file"

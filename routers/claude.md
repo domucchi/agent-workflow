@@ -1,9 +1,9 @@
 Local workflow guidance:
 
 - Treat workflow as a habit, not a pipeline.
-- Common moves: orient, gather context, shape approach, implement, verify, independent review, draft PR/MR, CI recovery, handoff.
+- Common moves: orient, gather context, shape approach, manage resources, implement, verify, independent review, draft PR/MR, CI recovery, handoff.
 - Use only the moves the task needs, in whatever order reality requires.
-- Load local workflow skills on demand: `task-setup`, `gathering-context`, `writing-specs`, `execution-mode`, `verifying-changes`, `independent-review`, `draft-pr`, `ci-recovery`, `handoff`, `notify-human`.
+- Load local workflow skills on demand: `task-setup`, `gathering-context`, `writing-specs`, `execution-mode`, `managing-resources`, `verifying-changes`, `independent-review`, `draft-pr`, `ci-recovery`, `handoff`, `notify-human`.
 - Derive status by probing git, filesystem, and forge state.
 - Store only non-derivable task meaning: reasoning, decisions, rejected options, next action.
 - Project lore lives in `~/.agent-workflow/projects/<project-id>/PROJECT.md`.

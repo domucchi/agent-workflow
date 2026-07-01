@@ -56,6 +56,10 @@ Lease resource:
 
 Canonical ports:
 
+Max wait seconds:
+
+Port grace seconds:
+
 Up command:
 
 Down command:
