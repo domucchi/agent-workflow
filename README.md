@@ -27,28 +27,55 @@ Keep this checkout somewhere permanent because installed skills symlink back to 
 - creates `~/.agent-workflow/projects/`
 - creates `~/.agent-workflow/NOTIFY.md` from `templates/NOTIFY.pushover.md` when missing
 - creates `~/.config/agent-workflow/pushover.env` with empty placeholders when missing
-- creates `~/.agent-workflow/bin/agent-notify`, `agent-lease`, `agent-dev`, `agent-preview`, and `agent-cleanup` as symlinks to this checkout
+- creates `~/.agent-workflow/bin/agent-notify`, `agent-lease`, `agent-dev`, `agent-preview`, `agent-cleanup`, and `agent-cp` as symlinks to this checkout
 - never overwrites existing config or writes real secrets
 
 Pushover credentials are sourced only by `agent-notify` while sending a notification. Do not source `pushover.env` from shell startup.
 
-`bin/agent-lease` coordinates one leased dev stack per project:
+`~/.agent-workflow/bin/agent-lease` coordinates one leased dev stack per project:
 
 ```bash
-bin/agent-lease claim --wait <resource>
-bin/agent-lease release <resource>
-bin/agent-lease list [resource]
-bin/agent-lease reap [resource]
+~/.agent-workflow/bin/agent-lease claim --wait <resource>
+~/.agent-workflow/bin/agent-lease release <resource>
+~/.agent-workflow/bin/agent-lease list [resource]
+~/.agent-workflow/bin/agent-lease reap [resource]
 ```
 
 Lease files live under `~/.agent-workflow/projects/<project-id>/leases/`.
 Liveness is derived from `kill -0` and `lsof`; unbound ports become reapable after
-the configured startup grace. No queue or waiter state is stored.
+the configured startup grace. No queue or waiter state is stored. Claiming a
+leased resource requires the task worktree:
 
-`bin/agent-dev` starts and stops the leased agent lane for a task worktree.
-`bin/agent-preview` starts and stops the unleased operator preview lane.
-`bin/agent-cleanup` conservatively reports disposable task worktrees and defaults
-to dry-run.
+```bash
+~/.agent-workflow/bin/agent-lease claim --wait --project-id <project-id> --task-id <task-id> --worktree ~/.agent-workflow/projects/<project-id>/tasks/<task-id>/worktrees/<worktree-id> <resource>
+```
+
+`~/.agent-workflow/bin/agent-dev` starts and stops the leased agent lane for a
+task worktree. It rejects non-task worktrees. `worktree-id` is derived from the
+branch name. `~/.agent-workflow/bin/agent-preview`
+starts and stops the unleased operator preview lane. Do not run preview and the
+leased dev lane from the same worktree when the framework creates a filesystem
+dev lock. `~/.agent-workflow/bin/agent-cleanup` conservatively reports disposable
+task worktrees and defaults to dry-run. It can archive a whole task, clean one
+task worktree, or force either action while still refusing active leases, running
+managed processes, and base/integration branches:
+
+```bash
+~/.agent-workflow/bin/agent-cleanup --project-id <project-id> --dry-run <task-id>
+~/.agent-workflow/bin/agent-cleanup --project-id <project-id> --execute <task-id>
+~/.agent-workflow/bin/agent-cleanup --project-id <project-id> --execute --worktree-id <worktree-id> <task-id>
+~/.agent-workflow/bin/agent-cleanup --project-id <project-id> --execute --force <task-id>
+```
+
+Normal cleanup removes the git worktree and deletes its local branch. Forced
+cleanup removes the worktree/task metadata but leaves the branch alone.
+
+`~/.agent-workflow/bin/agent-cp install|start|stop|status` manages the local
+control-plane daemon. It creates `~/.config/agent-workflow/control-plane.env`
+with a generated token and a launchd plist at
+`~/Library/LaunchAgents/com.agent-workflow.control-plane.plist`. The daemon
+binds only loopback or Tailscale addresses and re-derives all dashboard state
+from `~/.agent-workflow`, git, forge commands, and existing CLIs.
 
 `bin/init-project` creates per-repo local workflow scaffolding. It:
 
@@ -67,7 +94,7 @@ Task and project memory live outside code repositories:
 ~/.agent-workflow/projects/<project-id>/PROJECT.md
 ~/.agent-workflow/projects/<project-id>/PR_TEMPLATE.md
 ~/.agent-workflow/projects/<project-id>/tasks/<task-id>/
-~/.agent-workflow/projects/<project-id>/tasks/<task-id>/worktree/
+~/.agent-workflow/projects/<project-id>/tasks/<task-id>/worktrees/<worktree-id>/
 ```
 
 Projects may expose that workspace through a local, ignored repo symlink:

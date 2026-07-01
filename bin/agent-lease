@@ -140,6 +140,28 @@ resolve_worktree() {
   fi
 }
 
+task_worktree_path() {
+  printf '%s/projects/%s/tasks/%s/worktrees\n' "$(workflow_home_path)" "$resolved_project_id" "$resolved_task_id"
+}
+
+require_task_worktree() {
+  local expected actual legacy rest
+  expected="$(physical_path "$(task_worktree_path)")"
+  actual="$(physical_path "$1")"
+  legacy="$(physical_path "$(workflow_home_path)/projects/$resolved_project_id/tasks/$resolved_task_id/worktree")"
+  [ "$actual" = "$legacy" ] && return
+  case "$actual" in
+    "$expected"/*)
+      rest="${actual#$expected/}"
+      case "$rest" in
+        ""|*/*) ;;
+        *) return ;;
+      esac
+      ;;
+  esac
+  die "leased resources must use a task worktree under: $expected"
+}
+
 project_file() {
   printf '%s/projects/%s/PROJECT.md\n' "$(workflow_home_path)" "$resolved_project_id"
 }
@@ -380,6 +402,7 @@ claim_resource() {
   resolved_task_id="$(resolve_task_id)"
   safe_segment "$resolved_task_id" || die "invalid task id: $resolved_task_id"
   resolved_worktree="$(resolve_worktree)"
+  require_task_worktree "$resolved_worktree"
 
   if try_claim_once "$resource"; then
     return 0

@@ -47,7 +47,7 @@ unused_port() {
 export AGENT_WORKFLOW_HOME="$tmp_dir/home"
 project_id="test-project"
 task_id="TASK-agent-lease"
-worktree="$AGENT_WORKFLOW_HOME/projects/$project_id/tasks/$task_id/worktree"
+worktree="$AGENT_WORKFLOW_HOME/projects/$project_id/tasks/$task_id/worktrees/agent-lease"
 project_home="$AGENT_WORKFLOW_HOME/projects/$project_id"
 mkdir -p "$worktree" "$project_home"
 cat > "$project_home/PROJECT.md" <<'PROJECT'
@@ -60,6 +60,19 @@ Canonical ports:
 Max wait seconds: 2
 Port grace seconds: 2
 PROJECT
+
+mkdir -p "$tmp_dir/main-checkout"
+start_holder
+holder="$last_holder"
+if (
+  cd "$tmp_dir/main-checkout"
+  "$repo_root/bin/agent-lease" claim loose-dev --project-id "$project_id" --task-id "$task_id" --pid "$holder"
+) >"$tmp_dir/loose.out" 2>"$tmp_dir/loose.err"; then
+  fail "claim outside task worktree succeeded"
+fi
+grep -q "leased resources must use a task worktree" "$tmp_dir/loose.err" || fail "outside-task claim did not explain task worktree requirement"
+"$repo_root/bin/agent-lease" claim loose-dev --project-id "$project_id" --task-id "$task_id" --worktree "$worktree" --pid "$holder" >/dev/null
+"$repo_root/bin/agent-lease" release loose-dev --project-id "$project_id" --pid "$holder"
 
 start_holder
 holder="$last_holder"

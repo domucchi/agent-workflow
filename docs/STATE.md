@@ -33,7 +33,8 @@ configuration, task notes, and live-process annotations.
           evidence/
           reviews/
           screenshots/
-          worktree/
+          worktrees/
+            <worktree-id>/
           run/
             dev.pid
             dev.log
@@ -76,7 +77,7 @@ Shape:
   "holder_pid": 12345,
   "task_id": "GH-1-state-contract",
   "project_id": "github-com-domucchi-agent-workflow",
-  "worktree": "/Users/example/.agent-workflow/projects/github-com-domucchi-agent-workflow/tasks/GH-1-state-contract/worktree",
+  "worktree": "/Users/example/.agent-workflow/projects/github-com-domucchi-agent-workflow/tasks/GH-1-state-contract/worktrees/docs-gh-1-state-contract",
   "ports": [4100, 4101],
   "acquired_at": "2026-07-01T10:00:00Z"
 }
@@ -93,8 +94,9 @@ Fields:
 - `acquired_at`: UTC ISO-8601 timestamp
 
 Lease files are advisory. `kill -0 <holder_pid>` and `lsof` are truth. Release is
-best-effort; reapers must remove stale lease files only after proving the holder is
-dead and no configured ports are live.
+best-effort; interrupted shells can leave lease files behind. Reapers must remove
+stale lease files only after proving the holder is dead or the configured ports
+remained unbound past startup grace.
 
 ## Runtime Files
 
@@ -116,10 +118,13 @@ When the operator preview lane is running, it may create:
 ```text
 ~/.agent-workflow/projects/<project-id>/run/preview.pid
 ~/.agent-workflow/projects/<project-id>/run/preview.log
+~/.agent-workflow/projects/<project-id>/run/preview.json
 ```
 
 Preview runtime files are project-scoped because preview is not owned by a task
 and is never claimed or reaped by lease tooling.
+`preview.json` records the selected worktree and preview ports so dashboards can
+show which task is currently being viewed.
 
 Cleanup archives removed task folders under:
 
@@ -130,17 +135,27 @@ Cleanup archives removed task folders under:
 Archived task folders are historical metadata only; active state is still derived
 from current `tasks/`, git, processes, ports, and forge state.
 
+Worktree cleanup removes one git worktree from a task without archiving the task
+folder. Forced cleanup may bypass dirty, unpushed, missing-PR/MR, and missing
+worktree blockers, but it still refuses active leases, running managed processes,
+and base/integration branches. UI force actions require typing the exact task id
+or worktree id, and the control-plane API validates that confirmation server-side.
+Normal cleanup also deletes the local branch after removing the worktree. Forced
+cleanup deliberately leaves the branch untouched.
+
 ## Worktree Invariant
 
 Agents do implementation work only in per-task worktrees:
 
 ```text
-~/.agent-workflow/projects/<project-id>/tasks/<task-id>/worktree/
+~/.agent-workflow/projects/<project-id>/tasks/<task-id>/worktrees/<worktree-id>/
 ```
 
-Main checkouts are for read-only inspection unless the human explicitly asks
-otherwise. Work outside a task worktree is invisible to lease, dashboard, and cleanup
-layers.
+`worktree-id` is derived from the branch name by lowercasing and collapsing
+punctuation/slashes to `-`. Main checkouts are for read-only inspection. Leased
+dev workflows must use a task worktree path above; work outside it is invisible
+to lease, dashboard, and cleanup layers. Legacy `tasks/<task-id>/worktree/`
+paths are read for compatibility only.
 
 ## Dev Stack Invariant
 
@@ -150,6 +165,10 @@ services cannot safely run two agent stacks just because ports differ.
 
 The operator preview lane is separate from the lease. It uses fixed preview ports
 over the same shared infrastructure and is never claimed or reaped by lease tooling.
+Preview and leased dev must not run from the same worktree when the app framework
+uses filesystem dev locks.
+When multiple preview ports are listed in `PROJECT.md`, the last port is the
+browser-facing frontend URL.
 
 ## Config Precedence
 

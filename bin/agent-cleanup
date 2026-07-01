@@ -9,7 +9,7 @@ source "$script_dir/agent-runtime-lib"
 usage() {
   cat >&2 <<USAGE
 Usage:
-  $command_name [--project-id <id>] [--dry-run] [--execute] [task-id]
+  $command_name [--project-id <id>] [--dry-run] [--execute] [--force] [--worktree-id <id>] [task-id]
 USAGE
 }
 
@@ -18,15 +18,6 @@ is_base_branch() {
     main|master|develop|dev|staging|production|release|trunk) return 0 ;;
     *) return 1 ;;
   esac
-}
-
-task_has_notes() {
-  local home="$1"
-  find "$home" -mindepth 1 -maxdepth 1 \
-    ! -name worktree \
-    ! -name run \
-    ! -name DISPOSABLE |
-    grep -q .
 }
 
 task_has_live_pid() {
@@ -44,10 +35,18 @@ task_has_lease() {
 }
 
 branch_has_closed_pr() {
-  local branch="$1"
-  command -v gh >/dev/null 2>&1 || return 1
-  gh pr list --head "$branch" --state all --json state,mergedAt --limit 1 2>/dev/null |
-    grep -Eq '"state":"(CLOSED|MERGED)"|"mergedAt":"[^"]+"'
+  local wt="$1"
+  local branch="$2"
+  git -C "$wt" rev-parse --show-toplevel >/dev/null 2>&1 || return 1
+  if command -v gh >/dev/null 2>&1; then
+    (cd "$wt" && gh pr list --head "$branch" --state all --json state,mergedAt --limit 1 2>/dev/null) |
+      grep -Eiq '"state"[[:space:]]*:[[:space:]]*"(CLOSED|MERGED)"|"mergedAt"[[:space:]]*:[[:space:]]*"[^"]+"' && return 0
+  fi
+  if command -v glab >/dev/null 2>&1; then
+    (cd "$wt" && glab mr list --source-branch "$branch" --all --output json 2>/dev/null) |
+      grep -Eiq '"state"[[:space:]]*:[[:space:]]*"(closed|merged)"|"merged_at"[[:space:]]*:[[:space:]]*"[^"]+"' && return 0
+  fi
+  return 1
 }
 
 branch_pushed_or_merged() {
@@ -60,26 +59,107 @@ branch_pushed_or_merged() {
   git -C "$wt" merge-base --is-ancestor HEAD origin/main 2>/dev/null
 }
 
-evaluate_task() {
-  local task="$1"
-  local home wt branch reasons=()
-  home="$(project_home)/tasks/$task"
-  wt="$home/worktree"
+worktree_paths_for_task() {
+  local home="$1"
+  local _id path
+  worktree_entries_for_task "$home" | while IFS="$(printf '\t')" read -r _id path; do
+    [ -n "$path" ] || continue
+    printf '%s\n' "$path"
+  done
+}
 
-  [ -d "$home" ] || { printf 'refused %s: missing task dir\n' "$task"; return 1; }
-  [ -d "$wt/.git" ] || [ -f "$wt/.git" ] || reasons+=("missing expected worktree")
-  if [ -d "$wt" ]; then
+worktree_entries_for_task() {
+  local home="$1"
+  local path
+  if [ -d "$home/worktree" ]; then
+    printf 'default\t%s\n' "$home/worktree"
+  fi
+  if [ -d "$home/worktrees" ]; then
+    for path in "$home/worktrees"/*; do
+      [ -d "$path" ] || continue
+      printf '%s\t%s\n' "$(basename "$path")" "$path"
+    done
+  fi
+}
+
+worktree_safety_reasons() {
+  local task="$1"
+  local home="$2"
+  local wt="$3"
+  local allow_force="$4"
+  local branch reason_count=0
+  if [ ! -d "$wt/.git" ] && [ ! -f "$wt/.git" ]; then
+    if [ "$allow_force" -eq 0 ]; then
+      printf 'missing git worktree: %s\n' "$(basename "$wt")"
+      reason_count=$((reason_count + 1))
+    fi
+  else
     branch="$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || printf unknown)"
-    is_base_branch "$branch" && reasons+=("base/integration branch")
-    [ -z "$(git -C "$wt" status --porcelain 2>/dev/null)" ] || reasons+=("dirty worktree")
-    branch_pushed_or_merged "$wt" || reasons+=("unpushed commits")
-    if [ ! -f "$home/DISPOSABLE" ] && ! branch_has_closed_pr "$branch"; then
-      reasons+=("no closed/merged PR or DISPOSABLE marker")
+    if is_base_branch "$branch"; then
+      printf 'base/integration branch\n'
+      reason_count=$((reason_count + 1))
+    fi
+    if [ "$allow_force" -eq 0 ]; then
+      if [ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]; then
+        printf 'dirty worktree\n'
+        reason_count=$((reason_count + 1))
+      fi
+      if ! branch_pushed_or_merged "$wt"; then
+        printf 'unpushed commits\n'
+        reason_count=$((reason_count + 1))
+      fi
+      if [ ! -f "$home/DISPOSABLE" ] && ! branch_has_closed_pr "$wt" "$branch"; then
+        printf 'no closed/merged PR/MR or DISPOSABLE marker\n'
+        reason_count=$((reason_count + 1))
+      fi
     fi
   fi
+
+  [ "$reason_count" -eq 0 ]
+}
+
+evaluate_worktree_path() {
+  local task="$1"
+  local home="$2"
+  local wt="$3"
+  local allow_force="$4"
+  local reason reasons=()
+  while IFS= read -r reason; do
+    [ -n "$reason" ] || continue
+    reasons+=("$reason")
+  done < <(worktree_safety_reasons "$task" "$home" "$wt" "$allow_force")
+
+  if [ "${#reasons[@]}" -gt 0 ]; then
+    printf 'refused %s: ' "$task"
+    local first=1 reason
+    for reason in "${reasons[@]}"; do
+      if [ "$first" -eq 1 ]; then first=0; else printf '; '; fi
+      printf '%s' "$reason"
+    done
+    printf '\n'
+    return 1
+  fi
+  return 0
+}
+
+evaluate_task() {
+  local task="$1"
+  local allow_force="$2"
+  local home wt worktrees_text reasons=()
+  home="$(project_home)/tasks/$task"
+  worktrees_text="$(worktree_paths_for_task "$home")"
+
+  [ -d "$home" ] || { printf 'refused %s: missing task dir\n' "$task"; return 1; }
+  [ -n "$worktrees_text" ] || [ "$allow_force" -eq 1 ] || reasons+=("missing expected worktree")
+  while IFS= read -r wt; do
+    [ -n "$wt" ] || continue
+    while IFS= read -r reason; do
+      [ -n "$reason" ] || continue
+      reasons+=("$reason")
+    done < <(worktree_safety_reasons "$task" "$home" "$wt" "$allow_force")
+  done <<< "$worktrees_text"
   task_has_live_pid "$home" && reasons+=("running managed process")
   task_has_lease "$task" && reasons+=("active lease")
-  task_has_notes "$home" && reasons+=("task notes/metadata present")
 
   if [ "${#reasons[@]}" -gt 0 ]; then
     printf 'refused %s: ' "$task"
@@ -92,28 +172,76 @@ evaluate_task() {
     return 1
   fi
 
-  printf 'eligible %s %s\n' "$task" "$wt"
+  printf 'eligible %s %s\n' "$task" "$(printf '%s' "$worktrees_text" | tr '\n' ' ')"
   return 0
 }
 
-execute_cleanup() {
+find_worktree_path() {
   local task="$1"
-  local home wt archive git_common_dir
+  local worktree_id="$2"
+  local home id path
   home="$(project_home)/tasks/$task"
-  wt="$home/worktree"
-  archive="$(project_home)/archive/$task-$(date -u '+%Y%m%d%H%M%S')"
+  while IFS="$(printf '\t')" read -r id path; do
+    [ "$id" = "$worktree_id" ] || continue
+    printf '%s\n' "$path"
+    return 0
+  done < <(worktree_entries_for_task "$home")
+  return 1
+}
+
+remove_git_worktree() {
+  local wt="$1"
+  local delete_branch="${2:-0}"
+  local git_common_dir
+  local branch=""
+  [ -d "$wt" ] || return 0
+  if [ ! -d "$wt/.git" ] && [ ! -f "$wt/.git" ]; then
+    rm -rf "$wt"
+    printf 'removed-non-git-worktree %s\n' "$wt"
+    return 0
+  fi
+  branch="$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
   git_common_dir="$(git -C "$wt" rev-parse --git-common-dir)"
   if [ "${git_common_dir#/}" = "$git_common_dir" ]; then
     git_common_dir="$(cd "$wt/$git_common_dir" && pwd -P)"
   fi
   git --git-dir="$git_common_dir" worktree remove --force "$wt"
+  if [ "$delete_branch" -eq 1 ] && [ -n "$branch" ] && ! is_base_branch "$branch"; then
+    git --git-dir="$git_common_dir" branch -D "$branch" >/dev/null
+    printf 'deleted-branch %s\n' "$branch"
+  fi
+}
+
+execute_cleanup() {
+  local task="$1"
+  local allow_force="$2"
+  local home wt archive worktrees_text
+  home="$(project_home)/tasks/$task"
+  worktrees_text="$(worktree_paths_for_task "$home")"
+  archive="$(project_home)/archive/$task-$(date -u '+%Y%m%d%H%M%S')"
+  while IFS= read -r wt; do
+    [ -n "$wt" ] || continue
+    remove_git_worktree "$wt" "$((1 - allow_force))"
+  done <<< "$worktrees_text"
   mkdir -p "$(dirname "$archive")"
   mv "$home" "$archive"
   printf 'archived %s %s\n' "$task" "$archive"
 }
 
+execute_worktree_cleanup() {
+  local task="$1"
+  local worktree_id="$2"
+  local allow_force="$3"
+  local wt
+  wt="$(find_worktree_path "$task" "$worktree_id")" || die "unknown worktree id: $worktree_id"
+  remove_git_worktree "$wt" "$((1 - allow_force))"
+  printf 'removed-worktree %s %s %s\n' "$task" "$worktree_id" "$wt"
+}
+
 project_id=""
 dry_run=1
+force=0
+worktree_id=""
 task_filter=""
 
 while [ "$#" -gt 0 ]; do
@@ -121,6 +249,8 @@ while [ "$#" -gt 0 ]; do
     --project-id) shift; [ "$#" -gt 0 ] || die "--project-id requires a value"; project_id="$1" ;;
     --dry-run) dry_run=1 ;;
     --execute) dry_run=0 ;;
+    --force) force=1 ;;
+    --worktree-id) shift; [ "$#" -gt 0 ] || die "--worktree-id requires a value"; worktree_id="$1" ;;
     -h|--help) usage; exit 0 ;;
     -* ) die "unknown option: $1" ;;
     *) [ -z "$task_filter" ] || die "unexpected argument: $1"; task_filter="$1" ;;
@@ -146,9 +276,22 @@ fi
 
 exit_code=0
 for task_id in ${tasks[@]+"${tasks[@]}"}; do
-  if evaluate_task "$task_id"; then
+  if [ -n "$worktree_id" ]; then
+    safe_segment "$worktree_id" || die "invalid worktree id: $worktree_id"
+    worktree_path="$(find_worktree_path "$task_id" "$worktree_id")" || { printf 'refused %s: unknown worktree id: %s\n' "$task_id" "$worktree_id"; exit_code=1; continue; }
+    task_has_live_pid "$(project_home)/tasks/$task_id" && { printf 'refused %s: running managed process\n' "$task_id"; exit_code=1; continue; }
+    task_has_lease "$task_id" && { printf 'refused %s: active lease\n' "$task_id"; exit_code=1; continue; }
+    if evaluate_worktree_path "$task_id" "$(project_home)/tasks/$task_id" "$worktree_path" "$force"; then
+      printf 'eligible-worktree %s %s %s\n' "$task_id" "$worktree_id" "$worktree_path"
+      if [ "$dry_run" -eq 0 ]; then
+        execute_worktree_cleanup "$task_id" "$worktree_id" "$force"
+      fi
+    else
+      exit_code=1
+    fi
+  elif evaluate_task "$task_id" "$force"; then
     if [ "$dry_run" -eq 0 ]; then
-      execute_cleanup "$task_id"
+      execute_cleanup "$task_id" "$force"
     fi
   else
     exit_code=1
