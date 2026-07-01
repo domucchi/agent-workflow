@@ -20,12 +20,12 @@ numeric defaults inline after their labels so CLIs can read them.
 Agents run app work from task worktrees:
 
 ```text
-~/.agent-workflow/projects/<project-id>/tasks/<task-id>/worktree/
+~/.agent-workflow/projects/<project-id>/tasks/<task-id>/worktrees/<worktree-id>/
 ```
 
-Do not run leased app workflows from the main checkout unless the human explicitly
-asks for it. Work outside a task worktree is invisible to lease, dashboard, and
-cleanup tooling.
+Do not run leased app workflows from the main checkout. Work outside the task
+worktree is invisible to lease, dashboard, and cleanup tooling, and the lease CLI
+rejects it.
 
 ## When To Claim
 
@@ -50,10 +50,25 @@ them.
 
 ```bash
 holder_pid="$$"
-agent-lease claim --wait --pid "$holder_pid" <resource>
-trap 'agent-lease release --pid "$holder_pid" <resource>' EXIT
+~/.agent-workflow/bin/agent-lease claim --wait --pid "$holder_pid" <resource>
+trap '~/.agent-workflow/bin/agent-lease release --pid "$holder_pid" <resource>' EXIT
 
 # run app/e2e/browser work
+```
+
+If claiming from outside the task worktree for a low-level diagnostic, pass the
+task identity and task worktree explicitly:
+
+```bash
+~/.agent-workflow/bin/agent-lease claim --wait --pid "$$" --project-id <project-id> --task-id <task-id> --worktree ~/.agent-workflow/projects/<project-id>/tasks/<task-id>/worktrees/<worktree-id> <resource>
+```
+
+The trap is a guard, not proof of release. After interrupted shells or terminal
+closure, run:
+
+```bash
+~/.agent-workflow/bin/agent-lease list --project-id <project-id> [resource]
+~/.agent-workflow/bin/agent-lease reap --project-id <project-id> [resource]
 ```
 
 If `claim --wait` times out, stop and notify the human. Do not create queue files,
@@ -64,3 +79,7 @@ waiter files, or side-channel state.
 The operator preview profile is never claimed or reaped. It uses separate fixed
 ports over the same shared infra so the human can inspect the app while agents
 coordinate through the leased agent lane.
+
+Preview and leased dev still must not share the same worktree when the framework
+creates a filesystem dev lock, such as Next dev lock files. Use the task worktree
+for leased dev work, or stop preview before reusing its worktree.

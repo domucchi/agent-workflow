@@ -17,6 +17,8 @@ preview_bin="$workflow_home/bin/agent-preview"
 preview_src="$root/bin/agent-preview"
 cleanup_bin="$workflow_home/bin/agent-cleanup"
 cleanup_src="$root/bin/agent-cleanup"
+cp_bin="$workflow_home/bin/agent-cp"
+cp_src="$root/bin/agent-cp"
 runtime_lib="$workflow_home/bin/agent-runtime-lib"
 runtime_lib_src="$root/bin/agent-runtime-lib"
 
@@ -60,6 +62,7 @@ ensure_executable "$lease_src"
 ensure_executable "$dev_src"
 ensure_executable "$preview_src"
 ensure_executable "$cleanup_src"
+ensure_executable "$cp_src"
 
 if [ ! -f "$notify_file" ]; then
   cp "$notify_template" "$notify_file"
@@ -90,6 +93,7 @@ ensure_symlink "$lease_bin" "$lease_src"
 ensure_symlink "$dev_bin" "$dev_src"
 ensure_symlink "$preview_bin" "$preview_src"
 ensure_symlink "$cleanup_bin" "$cleanup_src"
+ensure_symlink "$cp_bin" "$cp_src"
 ensure_symlink "$runtime_lib" "$runtime_lib_src"
 
 printf '\nNext steps:\n'

@@ -122,8 +122,12 @@ Agents should use git worktrees for non-trivial code changes.
 Use:
 
 ```text
-~/.agent-workflow/projects/<project-id>/tasks/<task-id>/worktree/
+~/.agent-workflow/projects/<project-id>/tasks/<task-id>/worktrees/<worktree-id>/
 ```
+
+Derive `<worktree-id>` from the branch name by lowercasing and collapsing
+punctuation/slashes to `-`, for example `feat/GH-23-login` becomes
+`feat-gh-23-login`.
 
 Prefer an existing suitable worktree if one already exists. Otherwise create a branch and worktree using normal git commands and the project's branch naming rule.
 

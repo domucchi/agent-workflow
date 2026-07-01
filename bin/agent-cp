@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="${0##*/}"
+source_path="${BASH_SOURCE[0]}"
+while [ -L "$source_path" ]; do
+  link_target="$(readlink "$source_path")"
+  if [ "${link_target#/}" = "$link_target" ]; then
+    source_path="$(cd "$(dirname "$source_path")" && pwd -P)/$link_target"
+  else
+    source_path="$link_target"
+  fi
+done
+root="$(cd "$(dirname "$source_path")/.." && pwd)"
+workflow_home="${AGENT_WORKFLOW_HOME:-$HOME/.agent-workflow}"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}/agent-workflow"
+package_dir="$root/packages/control-plane"
+env_file="$config_home/control-plane.env"
+run_dir="$workflow_home/run"
+log_file="$run_dir/control-plane.log"
+err_file="$run_dir/control-plane.err.log"
+plist="$HOME/Library/LaunchAgents/com.agent-workflow.control-plane.plist"
+label="com.agent-workflow.control-plane"
+
+usage() {
+  cat >&2 <<USAGE
+Usage:
+  $command_name install
+  $command_name start
+  $command_name stop
+  $command_name status
+USAGE
+}
+
+die() {
+  printf '%s: %s\n' "$command_name" "$*" >&2
+  exit 1
+}
+
+generate_token() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 32
+  else
+    uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]'
+  fi
+}
+
+ensure_env() {
+  mkdir -p "$config_home" "$run_dir"
+  chmod 700 "$config_home" "$run_dir"
+  if [ ! -f "$env_file" ]; then
+    cat > "$env_file" <<ENV
+export AGENT_CP_HOST="127.0.0.1"
+export AGENT_CP_PORT="45731"
+export AGENT_CP_TOKEN="$(generate_token)"
+ENV
+    chmod 600 "$env_file"
+    printf 'Created %s\n' "$env_file"
+  else
+    chmod 600 "$env_file"
+    printf 'Exists %s\n' "$env_file"
+  fi
+}
+
+write_plist() {
+  local bun_bin
+  bun_bin="$(command -v bun)" || die "bun is required"
+  mkdir -p "$(dirname "$plist")"
+  cat > "$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$label</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>source "$env_file"; cd "$package_dir"; exec "$bun_bin" run src/server.ts</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>AGENT_WORKFLOW_HOME</key>
+    <string>$workflow_home</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>$package_dir</string>
+  <key>StandardOutPath</key>
+  <string>$log_file</string>
+  <key>StandardErrorPath</key>
+  <string>$err_file</string>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
+PLIST
+  chmod 600 "$plist"
+  printf 'Wrote %s\n' "$plist"
+}
+
+install_deps() {
+  command -v bun >/dev/null 2>&1 || die "bun is required"
+  (
+    cd "$package_dir"
+    bun install
+    bun run build
+  )
+}
+
+launch_domain() {
+  printf 'gui/%s\n' "$(id -u)"
+}
+
+cmd_install() {
+  ensure_env
+  install_deps
+  write_plist
+}
+
+cmd_start() {
+  [ -f "$plist" ] || cmd_install
+  launchctl bootstrap "$(launch_domain)" "$plist" 2>/dev/null || true
+  launchctl kickstart -k "$(launch_domain)/$label"
+  printf 'started %s\n' "$label"
+}
+
+cmd_stop() {
+  launchctl bootout "$(launch_domain)" "$plist" 2>/dev/null || launchctl unload "$plist" 2>/dev/null || true
+  printf 'stopped %s\n' "$label"
+}
+
+cmd_status() {
+  launchctl print "$(launch_domain)/$label" 2>/dev/null || {
+    printf 'stopped %s\n' "$label"
+    exit 1
+  }
+}
+
+[ "$#" -eq 1 ] || { usage; exit 64; }
+case "$1" in
+  install) cmd_install ;;
+  start) cmd_start ;;
+  stop) cmd_stop ;;
+  status) cmd_status ;;
+  -h|--help) usage ;;
+  *) usage; exit 64 ;;
+esac

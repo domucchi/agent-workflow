@@ -72,6 +72,8 @@ Shared infra:
 
 Preview ports:
 
+Preview URL port rule: last listed preview port is the browser-facing frontend URL.
+
 Preview up command:
 
 Preview down command:

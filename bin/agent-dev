@@ -9,9 +9,9 @@ source "$script_dir/agent-runtime-lib"
 usage() {
   cat >&2 <<USAGE
 Usage:
-  $command_name [--project-id <id>] [--worktree <path>] up <task-id>
-  $command_name [--project-id <id>] [--worktree <path>] down <task-id>
-  $command_name [--project-id <id>] [--worktree <path>] status <task-id>
+  $command_name [--project-id <id>] up <task-id>
+  $command_name [--project-id <id>] down <task-id>
+  $command_name [--project-id <id>] status <task-id>
   $command_name [--project-id <id>] logs [--follow] [--lines <n>] <task-id>
 USAGE
 }
